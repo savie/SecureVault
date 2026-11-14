@@ -3,6 +3,7 @@ package com.securevault
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -25,11 +26,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.securevault.ui.screens.FileManagerScreen
 import com.securevault.ui.screens.SettingsScreen
 import com.securevault.ui.screens.SetupScreen
 import com.securevault.ui.screens.UnlockScreen
 import com.securevault.ui.screens.VaultScreen
 import com.securevault.ui.theme.SecureVaultTheme
+import com.securevault.ui.viewmodel.FileManagerViewModel
 
 data class BottomNavItem(val title: String, val icon: ImageVector, val route: String)
 
@@ -52,7 +55,6 @@ fun VaultApp() {
     val prefs = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
     
     var savedPassword by remember { mutableStateOf(prefs.getString("master_pwd", null)) }
-    // Baca settingan fingerprint (default: true)
     var biometricEnabled by remember { mutableStateOf(prefs.getBoolean("biometric_enabled", true)) }
     var unlocked by remember { mutableStateOf(false) }
 
@@ -88,6 +90,8 @@ fun MainAppScreen(
     onBiometricToggle: (Boolean) -> Unit
 ) {
     val navController = rememberNavController()
+    val vaultViewModel: com.securevault.ui.viewmodel.VaultViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+
     val navItems = listOf(
         BottomNavItem("Vault", Icons.Default.Home, "vault"),
         BottomNavItem("Container", Icons.Default.Lock, "container"),
@@ -133,9 +137,21 @@ fun MainAppScreen(
                 } 
             }
             composable("file_manager") { 
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
-                    com.securevault.ui.screens.FileManagerScreen() 
-                } 
+                val fileManagerViewModel: FileManagerViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                
+                // BackHandler balik lagi ke sini
+                BackHandler(enabled = true) {
+                    val moved = fileManagerViewModel.navigateUp(isLeft = true)
+                    if (!moved) {
+                        navController.navigate("vault") {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                }
+
+                FileManagerScreen(viewModel = fileManagerViewModel)
             }
             composable("settings") { 
                 SettingsScreen(

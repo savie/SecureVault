@@ -19,12 +19,16 @@ data class FileItem(
     val size: Long
 )
 
+enum class SortOption { NAME, SIZE }
+
 data class PanelState(
     val currentPath: String = "/storage/emulated/0/",
     val items: List<FileItem> = emptyList(),
     val isLoading: Boolean = false,
     val isRootMode: Boolean = false,
-    val message: String? = null
+    val message: String? = null,
+    val sortOption: SortOption = SortOption.NAME,
+    val isAscending: Boolean = true
 )
 
 data class FileManagerState(
@@ -82,12 +86,13 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                         files.forEach { list.add(FileItem(it.name, it.absolutePath, it.isDirectory, it.length())) }
                     }
                 }
-
-                list.sortWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
                 list
             }
 
-            val updatedPanel = newPanel.copy(isLoading = false, items = items, isRootMode = isRootAvailable)
+            // Terapkan sorting
+            val sortedItems = sortItems(items, newPanel.sortOption, newPanel.isAscending)
+            
+            val updatedPanel = newPanel.copy(isLoading = false, items = sortedItems, isRootMode = isRootAvailable)
             _state.value = if (isLeft) _state.value.copy(leftPanel = updatedPanel) else _state.value.copy(rightPanel = updatedPanel)
         }
     }
@@ -96,29 +101,34 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         val currentPanel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
         val current = currentPanel.currentPath
         
-        // ---> FIX: Biarin naik terus, bahkan dari Home ---
-        // Kalo udah di "/" (root system), baru balik ke Home
         if (current == "/") {
             loadPanel(isLeft, homePath)
             return true
         }
-        
-        // Kalo di Home (/storage/emulated/0/), naik ke /storage/emulated/
         if (current == homePath) {
-            val parent = File(current).parent  // /storage/emulated/
-            if (parent != null) {
-                loadPanel(isLeft, parent)
-                return true
-            }
+            val parent = File(current).parent
+            if (parent != null) { loadPanel(isLeft, parent); return true }
         }
-        
-        // Kalo di folder lain, naik ke parent biasa
         val parent = File(current).parent
-        if (parent != null) {
-            loadPanel(isLeft, parent)
-            return true
-        }
-        
+        if (parent != null) { loadPanel(isLeft, parent); return true }
         return false
+    }
+
+    fun changeSort(isLeft: Boolean, option: SortOption) {
+        val currentPanel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
+        val newAscending = if (currentPanel.sortOption == option) !currentPanel.isAscending else true
+        val newPanel = currentPanel.copy(sortOption = option, isAscending = newAscending)
+        val sortedItems = sortItems(newPanel.items, option, newAscending)
+        val finalPanel = newPanel.copy(items = sortedItems)
+        
+        _state.value = if (isLeft) _state.value.copy(leftPanel = finalPanel) else _state.value.copy(rightPanel = finalPanel)
+    }
+
+    private fun sortItems(items: List<FileItem>, option: SortOption, ascending: Boolean): List<FileItem> {
+        val comparator = when (option) {
+            SortOption.NAME -> compareBy<FileItem> { !it.isDirectory }.thenBy { it.name.lowercase() }
+            SortOption.SIZE -> compareBy<FileItem> { !it.isDirectory }.thenBy { it.size }
+        }
+        return if (ascending) items.sortedWith(comparator) else items.sortedWith(comparator.reversed())
     }
 }
