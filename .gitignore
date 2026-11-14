@@ -1,0 +1,16 @@
+# Gradle
+.gradle/
+build/
+app/build/
+
+# Local configuration
+local.properties
+*.hprof
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.DS_Store
+
+# CodeOnTheGo specific caches
+.itsaky/
