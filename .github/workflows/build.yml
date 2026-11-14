@@ -2,12 +2,11 @@ name: Build SecureVault APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master, main ]
   workflow_dispatch:
 
 jobs:
   build:
-    # Mengunci versi OS ke 22.04 agar stabil dan tidak kena warning transisi Ubuntu 24.04
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout Repository
@@ -21,6 +20,9 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # INI KUNCI PERBAIKANNYA: Hanya install platform-tools, jangan 'tools'
+          packages: 'platform-tools'
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
