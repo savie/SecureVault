@@ -38,7 +38,6 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(isLoading = true, message = "Encrypting file...")
             try {
                 val path = repository.encryptAndSaveFile(password, uri)
-                // Tampilin path asli yang kedeteksi!
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Encrypted! Path: $path")
                 refreshFiles()
             } catch (e: Exception) {
@@ -53,6 +52,20 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val location = repository.decryptAndRestoreFile(password, item)
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Restored to: $location")
+                refreshFiles()
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Error: ${e.message}")
+            }
+        }
+    }
+
+    // FUNGSI BARU: Delete File
+    fun deleteFile(item: VaultItem) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, message = "Deleting file...")
+            try {
+                repository.deleteVaultFile(item)
+                _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ File deleted!")
                 refreshFiles()
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Error: ${e.message}")

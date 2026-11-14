@@ -63,7 +63,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
     private val isRootAvailable = RootUtils.isRootAvailable()
     private val homePath = "/storage/emulated/0/"
-    private val forceRootPaths = listOf("/cache", "/bin", "/etc", "/sdcard", "/vendor", "/system", "/product", "/data")
+    private val forceRootPaths = listOf("/cache", "/bin", "/etc", "/sdcard", "/vendor", "/system", "/product", "/data", "/data/data", "/data/user", "/data/user/0")
 
     init {
         loadPanel(isLeft = true, path = homePath)
@@ -81,6 +81,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 val list = mutableListOf<FileItem>()
                 val mustUseRoot = forceRootPaths.contains(cleanPath) || isRootAvailable
 
+                // PAKE STAT (Anti-gagal)
                 if (mustUseRoot && isRootAvailable) {
                     try {
                         val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "stat -c '%n|%s|%F' \"$cleanPath\"/* 2>/dev/null"))

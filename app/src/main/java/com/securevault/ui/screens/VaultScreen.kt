@@ -2,18 +2,15 @@ package com.securevault.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,7 +19,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.securevault.data.local.VaultItem
 import com.securevault.ui.viewmodel.VaultViewModel
+import java.text.SimpleDateFormat
+import java.util.*
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun VaultScreen(
     masterPassword: String, 
@@ -30,6 +30,10 @@ fun VaultScreen(
     viewModel: VaultViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var selectedFile by remember { mutableStateOf<VaultItem?>(null) }
+    var showMenu by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showPropertiesDialog by remember { mutableStateOf(false) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -45,7 +49,6 @@ fun VaultScreen(
         ) {
             Text("🔓 Vault", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
             Row {
-                // TOMBOL REFRESH
                 IconButton(onClick = { viewModel.refreshFiles() }) {
                     Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
                 }
@@ -88,28 +91,108 @@ fun VaultScreen(
                     VaultItemCard(
                         file = file, 
                         isEnabled = !uiState.isLoading,
-                        onClick = { viewModel.restoreFile(masterPassword, file) }
+                        onClick = { selectedFile = file; showMenu = true }
                     )
                 }
             }
         }
     }
+
+    // BOTTOM SHEET MENU
+    if (showMenu && selectedFile != null) {
+        ModalBottomSheet(
+            onDismissRequest = { showMenu = false },
+            containerColor = Color(0xFF1E1E1E)
+        ) {
+            Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+                Text(selectedFile!!.originalName, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(selectedFile!!.originalPath, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(16.dp))
+
+                ListItem(
+                    headlineContent = { Text("Restore (Decrypt)", color = Color.Green) },
+                    leadingContent = { Icon(Icons.Default.LockOpen, contentDescription = null, tint = Color.Green) },
+                    modifier = Modifier.combinedClickable(
+                        onClick = {
+                            viewModel.restoreFile(masterPassword, selectedFile!!)
+                            showMenu = false
+                        }
+                    )
+                )
+                ListItem(
+                    headlineContent = { Text("Delete from Vault", color = Color.Red) },
+                    leadingContent = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red) },
+                    modifier = Modifier.combinedClickable(
+                        onClick = { showDeleteDialog = true; showMenu = false }
+                    )
+                )
+                ListItem(
+                    headlineContent = { Text("Properties", color = Color.White) },
+                    leadingContent = { Icon(Icons.Default.Info, contentDescription = null, tint = Color.White) },
+                    modifier = Modifier.combinedClickable(
+                        onClick = { showPropertiesDialog = true; showMenu = false }
+                    )
+                )
+            }
+        }
+    }
+
+    // DIALOG DELETE
+    if (showDeleteDialog && selectedFile != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete File", color = Color.White) },
+            text = { Text("Are you sure you want to permanently delete '${selectedFile!!.originalName}' from Vault?", color = Color.LightGray) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteFile(selectedFile!!)
+                    showDeleteDialog = false
+                }) { Text("Delete", color = Color.Red) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel", color = Color.Gray) }
+            },
+            containerColor = Color(0xFF1E1E1E)
+        )
+    }
+
+    // DIALOG PROPERTIES
+    if (showPropertiesDialog && selectedFile != null) {
+        val date = SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault()).format(Date(selectedFile!!.timestamp))
+        AlertDialog(
+            onDismissRequest = { showPropertiesDialog = false },
+            title = { Text("Properties", color = Color.White) },
+            text = {
+                Column {
+                    PropertyRow("Name", selectedFile!!.originalName)
+                    PropertyRow("Original Path", selectedFile!!.originalPath)
+                    PropertyRow("Type", selectedFile!!.mimeType)
+                    PropertyRow("Size", formatSize(selectedFile!!.fileSize))
+                    PropertyRow("Encrypted On", date)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPropertiesDialog = false }) { Text("Close", color = Color.White) }
+            },
+            containerColor = Color(0xFF1E1E1E)
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class) // <--- INI YANG KURANG TADI BOS
 @Composable
 fun VaultItemCard(file: VaultItem, isEnabled: Boolean, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clickable(enabled = isEnabled, onClick = onClick),
+            .combinedClickable(enabled = isEnabled, onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(file.originalName, color = Color.White, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            Text("Tap to Restore • ${formatSize(file.fileSize)}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+            Text("Tap for options • ${formatSize(file.fileSize)}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
-
-// Helper Format Size
+// Fungsi PropertyRow & formatSize TIDAK ditulis di sini karena udah ada di FileManagerScreen.kt

@@ -18,13 +18,14 @@ class VaultRepository(private val context: Context) {
 
     fun getVaultFiles(): List<VaultItem> = dbHelper.getAllFiles()
 
-    // Fungsi ini pake expression body (= withContext), jadi nggak boleh ada 'return' eksplisit
     suspend fun encryptAndSaveFile(masterPassword: String, sourceUri: Uri): String = withContext(Dispatchers.IO) {
         val (originalName, mimeType, absolutePath) = FileHelper.getFileInfoFromUri(context, sourceUri)
         
         val inputStream = context.contentResolver.openInputStream(sourceUri)
         val originalBytes = inputStream?.readBytes() ?: throw Exception("Failed to read file")
         inputStream.close()
+
+        if (originalBytes.isEmpty()) throw Exception("File is empty")
 
         val salt = CryptoManager.generateSalt()
         val key = CryptoManager.deriveKey(masterPassword.toCharArray(), salt)
@@ -36,15 +37,11 @@ class VaultRepository(private val context: Context) {
         
         dbHelper.insertFile(uuid, originalName, mimeType, originalBytes.size.toLong(), absolutePath)
 
-        // Hapus file asli
         var isDeleted = false
         try { if (context.contentResolver.delete(sourceUri, null, null) > 0) isDeleted = true } catch (e: Exception) {}
-        if (!isDeleted) {
-            try { if (File(absolutePath).delete()) isDeleted = true } catch (ex: Exception) {}
-        }
+        if (!isDeleted) { try { if (File(absolutePath).delete()) isDeleted = true } catch (ex: Exception) {} }
         if (!isDeleted) RootUtils.deleteFileAsRoot(absolutePath)
 
-        // Ini nilai yang dibalikin (tanpa keyword 'return')
         absolutePath 
     }
 
@@ -60,12 +57,20 @@ class VaultRepository(private val context: Context) {
         val decryptedBytes = CryptoManager.decrypt(key, encryptedData)
 
         val savedLocation = StorageHelper.saveFile(context, item.originalName, item.mimeType, item.originalPath, decryptedBytes)
-            ?: throw Exception("Failed to restore. Access denied or storage full.")
+            ?: throw Exception("Failed to restore. Access denied.")
 
         vaultFile.delete()
         dbHelper.deleteFile(item.uuid)
         
-        // Ini nilai yang dibalikin
-        savedLocation 
+        savedLocation
+    }
+
+    // FUNGSI BARU: Hapus file dari Vault
+    suspend fun deleteVaultFile(item: VaultItem) = withContext(Dispatchers.IO) {
+        val vaultFile = File(File(context.filesDir, "vault"), "${item.uuid}.svlt")
+        if (vaultFile.exists()) {
+            if (!vaultFile.delete()) RootUtils.deleteFileAsRoot(vaultFile.absolutePath)
+        }
+        dbHelper.deleteFile(item.uuid)
     }
 }
