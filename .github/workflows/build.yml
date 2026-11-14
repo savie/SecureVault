@@ -18,13 +18,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # KITA HAPUS LANGKAH 'Setup Android SDK' KARENA SDK SUDAH ADA DI RUNNER
-
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build Debug APK (with stacktrace)
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Build Debug APK
+        # Tambahan '-Pandroid.aapt2FromMavenOverride=' untuk MENIMPA/MENGOSONGKAN baris AAPT2 dari gradle.properties
+        run: ./gradlew assembleDebug --no-daemon --stacktrace -Pandroid.aapt2FromMavenOverride=
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
