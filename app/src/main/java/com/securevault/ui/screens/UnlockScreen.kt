@@ -20,7 +20,6 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.delay
 
-// Fungsi pembantu buat nyari Activity yang dibungkus sama Compose
 fun Context.findFragmentActivity(): FragmentActivity? {
     var context = this
     while (context is ContextWrapper) {
@@ -31,7 +30,7 @@ fun Context.findFragmentActivity(): FragmentActivity? {
 }
 
 @Composable
-fun UnlockScreen(savedPassword: String, onUnlock: () -> Unit) {
+fun UnlockScreen(savedPassword: String, biometricEnabled: Boolean, onUnlock: () -> Unit) {
     val context = LocalContext.current
     val activity = remember(context) { context.findFragmentActivity() }
 
@@ -53,7 +52,6 @@ fun UnlockScreen(savedPassword: String, onUnlock: () -> Unit) {
                     }
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                         super.onAuthenticationError(errorCode, errString)
-                        // Abaikan error kalau user sengaja cancel
                         if (errorCode != BiometricPrompt.ERROR_USER_CANCELED && errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
                             error = errString.toString()
                         }
@@ -72,14 +70,14 @@ fun UnlockScreen(savedPassword: String, onUnlock: () -> Unit) {
             .build()
     }
 
-    // Kasih delay dikit biar transisi layar selesai, baru munculin pop-up
     LaunchedEffect(Unit) {
-        if (canAuthenticate && biometricPrompt != null) {
-            delay(500) 
+        // Hanya tampilkan pop-up jika user mengaktifkan biometric
+        if (biometricEnabled && canAuthenticate && biometricPrompt != null) {
+            delay(500)
             try {
                 biometricPrompt.authenticate(promptInfo)
             } catch (e: Exception) {
-                e.printStackTrace() // Biar ga crash kalau gagal
+                e.printStackTrace()
             }
         }
     }
@@ -87,10 +85,10 @@ fun UnlockScreen(savedPassword: String, onUnlock: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Unlock Vault", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(24.dp))
-        
+
         OutlinedTextField(
-            value = pwd, onValueChange = { pwd = it }, 
-            label = { Text("Password") }, 
+            value = pwd, onValueChange = { pwd = it },
+            label = { Text("Password") },
             visualTransformation = if (isPwdVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 val icon = if (isPwdVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
@@ -100,21 +98,21 @@ fun UnlockScreen(savedPassword: String, onUnlock: () -> Unit) {
             },
             modifier = Modifier.fillMaxWidth()
         )
-        
+
         error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = MaterialTheme.colorScheme.error) }
         Spacer(Modifier.height(24.dp))
-        
+
         Button(
             onClick = { if (pwd == savedPassword) onUnlock() else error = "Incorrect password." },
             modifier = Modifier.fillMaxWidth().height(50.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onBackground, contentColor = MaterialTheme.colorScheme.background)
         ) { Text("Unlock with Password") }
-        
-        if (canAuthenticate && biometricPrompt != null) {
+
+        if (biometricEnabled && canAuthenticate && biometricPrompt != null) {
             Spacer(Modifier.height(16.dp))
             OutlinedButton(
-                onClick = { 
-                    try { biometricPrompt.authenticate(promptInfo) } catch (e: Exception) {} 
+                onClick = {
+                    try { biometricPrompt.authenticate(promptInfo) } catch (e: Exception) {}
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp)
             ) { Text("Try Fingerprint Again") }

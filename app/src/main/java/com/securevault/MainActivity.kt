@@ -3,17 +3,35 @@ package com.securevault
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
+import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.securevault.ui.screens.SettingsScreen
 import com.securevault.ui.screens.SetupScreen
 import com.securevault.ui.screens.UnlockScreen
 import com.securevault.ui.screens.VaultScreen
 import com.securevault.ui.theme.SecureVaultTheme
+
+data class BottomNavItem(val title: String, val icon: ImageVector, val route: String)
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,7 +50,10 @@ class MainActivity : FragmentActivity() {
 fun VaultApp() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
+    
     var savedPassword by remember { mutableStateOf(prefs.getString("master_pwd", null)) }
+    // Baca settingan fingerprint (default: true)
+    var biometricEnabled by remember { mutableStateOf(prefs.getBoolean("biometric_enabled", true)) }
     var unlocked by remember { mutableStateOf(false) }
 
     when {
@@ -44,11 +65,85 @@ fun VaultApp() {
         )
         !unlocked -> UnlockScreen(
             savedPassword = savedPassword!!,
+            biometricEnabled = biometricEnabled,
             onUnlock = { unlocked = true }
         )
-        else -> VaultScreen(
-            masterPassword = savedPassword!!, // <-- Kirim password ke Vault
-            onLock = { unlocked = false }
+        else -> MainAppScreen(
+            masterPassword = savedPassword!!,
+            onLock = { unlocked = false },
+            onBiometricToggle = { isEnabled ->
+                biometricEnabled = isEnabled
+                prefs.edit().putBoolean("biometric_enabled", isEnabled).apply()
+            },
+            biometricEnabled = biometricEnabled
         )
+    }
+}
+
+@Composable
+fun MainAppScreen(
+    masterPassword: String, 
+    onLock: () -> Unit,
+    biometricEnabled: Boolean,
+    onBiometricToggle: (Boolean) -> Unit
+) {
+    val navController = rememberNavController()
+    val navItems = listOf(
+        BottomNavItem("Vault", Icons.Default.Home, "vault"),
+        BottomNavItem("Container", Icons.Default.Lock, "container"),
+        BottomNavItem("Explorer", Icons.Default.Folder, "file_manager"),
+        BottomNavItem("Settings", Icons.Default.Settings, "settings")
+    )
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar(containerColor = Color(0xFF1E1E1E)) {
+                val navBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentDestination = navBackStackEntry?.destination
+
+                navItems.forEach { item ->
+                    NavigationBarItem(
+                        icon = { Icon(item.icon, contentDescription = item.title) },
+                        label = { Text(item.title) },
+                        selected = currentDestination?.hierarchy?.any { it.route == item.route } == true,
+                        onClick = {
+                            navController.navigate(item.route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color.Black,
+                            selectedTextColor = Color.White,
+                            indicatorColor = Color.White,
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray
+                        )
+                    )
+                }
+            }
+        }
+    ) { padding ->
+        NavHost(navController = navController, startDestination = "vault", modifier = Modifier.padding(padding)) {
+            composable("vault") { VaultScreen(masterPassword = masterPassword, onLock = onLock) }
+            composable("container") { 
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
+                    Text("FolderLock Container (Fase 5)", color = Color.White) 
+                } 
+            }
+            composable("file_manager") { 
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
+                    Text("File Manager Explorer (Fase 4)", color = Color.White) 
+                } 
+            }
+            composable("settings") { 
+                SettingsScreen(
+                    onLock = onLock, 
+                    biometricEnabled = biometricEnabled,
+                    onBiometricToggle = onBiometricToggle
+                ) 
+            }
+        }
     }
 }
