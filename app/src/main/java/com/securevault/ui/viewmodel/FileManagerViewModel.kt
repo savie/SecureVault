@@ -3,6 +3,9 @@ package com.securevault.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.securevault.utils.ConflictAction
+import com.securevault.utils.FileOperationHelper
+import com.securevault.utils.FileResult
 import com.securevault.utils.RootUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +23,7 @@ data class FileItem(
 )
 
 enum class SortOption { NAME, SIZE }
+enum class ClipboardAction { COPY, MOVE }
 
 data class PanelState(
     val currentPath: String = "/storage/emulated/0/",
@@ -31,9 +35,25 @@ data class PanelState(
     val isAscending: Boolean = true
 )
 
+data class PendingPaste(
+    val sourceFile: File,
+    val targetDir: File,
+    val action: ClipboardAction,
+    val isLeftTarget: Boolean
+)
+
+data class PendingConflict(
+    val sourceFile: File,
+    val destDir: File,
+    val action: ClipboardAction,
+    val isLeftTarget: Boolean
+)
+
 data class FileManagerState(
     val leftPanel: PanelState = PanelState(),
-    val rightPanel: PanelState = PanelState()
+    val rightPanel: PanelState = PanelState(),
+    val pendingPaste: PendingPaste? = null,    // Dialog buat konfirmasi copy/move
+    val pendingConflict: PendingConflict? = null // Dialog buat file bentrok
 )
 
 class FileManagerViewModel(application: Application) : AndroidViewModel(application) {
@@ -89,22 +109,22 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 list
             }
 
-            // Terapkan sorting
             val sortedItems = sortItems(items, newPanel.sortOption, newPanel.isAscending)
-            
             val updatedPanel = newPanel.copy(isLoading = false, items = sortedItems, isRootMode = isRootAvailable)
             _state.value = if (isLeft) _state.value.copy(leftPanel = updatedPanel) else _state.value.copy(rightPanel = updatedPanel)
         }
+    }
+
+    fun refreshPanel(isLeft: Boolean) {
+        val path = if (isLeft) _state.value.leftPanel.currentPath else _state.value.rightPanel.currentPath
+        loadPanel(isLeft, path)
     }
 
     fun navigateUp(isLeft: Boolean): Boolean {
         val currentPanel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
         val current = currentPanel.currentPath
         
-        if (current == "/") {
-            loadPanel(isLeft, homePath)
-            return true
-        }
+        if (current == "/") { loadPanel(isLeft, homePath); return true }
         if (current == homePath) {
             val parent = File(current).parent
             if (parent != null) { loadPanel(isLeft, parent); return true }
@@ -120,7 +140,6 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         val newPanel = currentPanel.copy(sortOption = option, isAscending = newAscending)
         val sortedItems = sortItems(newPanel.items, option, newAscending)
         val finalPanel = newPanel.copy(items = sortedItems)
-        
         _state.value = if (isLeft) _state.value.copy(leftPanel = finalPanel) else _state.value.copy(rightPanel = finalPanel)
     }
 
@@ -130,5 +149,99 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             SortOption.SIZE -> compareBy<FileItem> { !it.isDirectory }.thenBy { it.size }
         }
         return if (ascending) items.sortedWith(comparator) else items.sortedWith(comparator.reversed())
+    }
+
+    // ---> FUNGSI BARU: Trigger Dialog Copy/Move <---
+    fun promptPaste(sourceItem: FileItem, action: ClipboardAction, isLeftSource: Boolean) {
+        // Target-nya adalah panel seberang
+        val targetPanel = if (isLeftSource) _state.value.rightPanel else _state.value.leftPanel
+        _state.value = _state.value.copy(
+            pendingPaste = PendingPaste(
+                sourceFile = File(sourceItem.path),
+                targetDir = File(targetPanel.currentPath),
+                action = action,
+                isLeftTarget = !isLeftSource
+            )
+        )
+    }
+
+    fun clearPendingPaste() {
+        _state.value = _state.value.copy(pendingPaste = null)
+    }
+
+    fun executePaste() {
+        val pending = _state.value.pendingPaste ?: return
+        val action = pending.action
+        val targetPanelPath = pending.targetDir.absolutePath
+        val isLeftTarget = pending.isLeftTarget
+
+        viewModelScope.launch {
+            _state.value = _state.value.copy(pendingPaste = null)
+            val targetPanel = if (isLeftTarget) _state.value.leftPanel else _state.value.rightPanel
+            _state.value = if (isLeftTarget) _state.value.copy(leftPanel = targetPanel.copy(isLoading = true)) else _state.value.copy(rightPanel = targetPanel.copy(isLoading = true))
+
+            val result = withContext(Dispatchers.IO) {
+                when (action) {
+                    ClipboardAction.COPY -> FileOperationHelper.copy(pending.sourceFile, pending.targetDir)
+                    ClipboardAction.MOVE -> FileOperationHelper.move(pending.sourceFile, pending.targetDir)
+                }
+            }
+
+            when (result) {
+                is FileResult.Success -> {
+                    loadPanel(isLeftTarget, targetPanelPath)
+                    loadPanel(!isLeftTarget, if (isLeftTarget) _state.value.rightPanel.currentPath else _state.value.leftPanel.currentPath)
+                }
+                is FileResult.Conflict -> {
+                    _state.value = _state.value.copy(
+                        pendingConflict = PendingConflict(pending.sourceFile, pending.targetDir, action, isLeftTarget)
+                    )
+                    loadPanel(isLeftTarget, targetPanelPath)
+                }
+                is FileResult.Failure -> loadPanel(isLeftTarget, targetPanelPath)
+            }
+        }
+    }
+
+    fun resolveConflict(action: ConflictAction) {
+        val conflict = _state.value.pendingConflict ?: return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(pendingConflict = null)
+            val targetPanel = if (conflict.isLeftTarget) _state.value.leftPanel else _state.value.rightPanel
+            _state.value = if (conflict.isLeftTarget) _state.value.copy(leftPanel = targetPanel.copy(isLoading = true)) else _state.value.copy(rightPanel = targetPanel.copy(isLoading = true))
+
+            val result = withContext(Dispatchers.IO) {
+                when (conflict.action) {
+                    ClipboardAction.COPY -> FileOperationHelper.copy(conflict.sourceFile, conflict.destDir, action)
+                    ClipboardAction.MOVE -> FileOperationHelper.move(conflict.sourceFile, conflict.destDir, action)
+                }
+            }
+
+            loadPanel(conflict.isLeftTarget, targetPanel.currentPath)
+            loadPanel(!conflict.isLeftTarget, if (conflict.isLeftTarget) _state.value.rightPanel.currentPath else _state.value.leftPanel.currentPath)
+        }
+    }
+
+    // ---> FUNGSI BARU: Clear Conflict (Buat tombol Cancel) <---
+    fun clearConflict() {
+        _state.value = _state.value.copy(pendingConflict = null)
+    }
+
+    fun deleteFile(item: FileItem, isLeft: Boolean) {
+        viewModelScope.launch {
+            val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
+            _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
+            withContext(Dispatchers.IO) { FileOperationHelper.delete(File(item.path)) }
+            loadPanel(isLeft, panel.currentPath)
+        }
+    }
+
+    fun renameFile(item: FileItem, newName: String, isLeft: Boolean) {
+        viewModelScope.launch {
+            val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
+            _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
+            withContext(Dispatchers.IO) { FileOperationHelper.rename(File(item.path), newName) }
+            loadPanel(isLeft, panel.currentPath)
+        }
     }
 }
