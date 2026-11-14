@@ -26,7 +26,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
     init { refreshFiles() }
 
-    private fun refreshFiles() {
+    fun refreshFiles() {
         viewModelScope.launch {
             val files = withContext(Dispatchers.IO) { repository.getVaultFiles() }
             _uiState.value = _uiState.value.copy(files = files)

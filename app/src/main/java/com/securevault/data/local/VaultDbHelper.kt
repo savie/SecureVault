@@ -5,7 +5,6 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-// Naikin versi database ke 2 biar tabelnya ke-reset dengan struktur baru
 class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -48,18 +47,30 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
         if (cursor.moveToFirst()) {
             do {
                 list.add(VaultItem(
-                    cursor.getString(0),
-                    cursor.getString(1),
-                    cursor.getString(2),
-                    cursor.getLong(3),
-                    cursor.getLong(4),
-                    cursor.getString(5) // <-- Ambil originalPath
+                    cursor.getString(0), cursor.getString(1), cursor.getString(2),
+                    cursor.getLong(3), cursor.getLong(4), cursor.getString(5)
                 ))
             } while (cursor.moveToNext())
         }
         cursor.close()
         db.close()
         return list
+    }
+
+    // FUNGSI BARU: Buat Decrypt dari File Manager
+    fun getFileByUuid(uuid: String): VaultItem? {
+        val db = readableDatabase
+        val cursor = db.rawQuery("SELECT * FROM vault_files WHERE uuid = ?", arrayOf(uuid))
+        var item: VaultItem? = null
+        if (cursor.moveToFirst()) {
+            item = VaultItem(
+                cursor.getString(0), cursor.getString(1), cursor.getString(2),
+                cursor.getLong(3), cursor.getLong(4), cursor.getString(5)
+            )
+        }
+        cursor.close()
+        db.close()
+        return item
     }
 
     fun deleteFile(uuid: String) {

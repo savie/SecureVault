@@ -7,6 +7,7 @@ import com.securevault.utils.ConflictAction
 import com.securevault.utils.FileOperationHelper
 import com.securevault.utils.FileResult
 import com.securevault.utils.RootUtils
+import com.securevault.utils.VaultImporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,8 +53,8 @@ data class PendingConflict(
 data class FileManagerState(
     val leftPanel: PanelState = PanelState(),
     val rightPanel: PanelState = PanelState(),
-    val pendingPaste: PendingPaste? = null,    // Dialog buat konfirmasi copy/move
-    val pendingConflict: PendingConflict? = null // Dialog buat file bentrok
+    val pendingPaste: PendingPaste? = null,
+    val pendingConflict: PendingConflict? = null
 )
 
 class FileManagerViewModel(application: Application) : AndroidViewModel(application) {
@@ -151,9 +152,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         return if (ascending) items.sortedWith(comparator) else items.sortedWith(comparator.reversed())
     }
 
-    // ---> FUNGSI BARU: Trigger Dialog Copy/Move <---
     fun promptPaste(sourceItem: FileItem, action: ClipboardAction, isLeftSource: Boolean) {
-        // Target-nya adalah panel seberang
         val targetPanel = if (isLeftSource) _state.value.rightPanel else _state.value.leftPanel
         _state.value = _state.value.copy(
             pendingPaste = PendingPaste(
@@ -165,9 +164,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         )
     }
 
-    fun clearPendingPaste() {
-        _state.value = _state.value.copy(pendingPaste = null)
-    }
+    fun clearPendingPaste() { _state.value = _state.value.copy(pendingPaste = null) }
 
     fun executePaste() {
         val pending = _state.value.pendingPaste ?: return
@@ -222,10 +219,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    // ---> FUNGSI BARU: Clear Conflict (Buat tombol Cancel) <---
-    fun clearConflict() {
-        _state.value = _state.value.copy(pendingConflict = null)
-    }
+    fun clearConflict() { _state.value = _state.value.copy(pendingConflict = null) }
 
     fun deleteFile(item: FileItem, isLeft: Boolean) {
         viewModelScope.launch {
@@ -241,6 +235,26 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
             withContext(Dispatchers.IO) { FileOperationHelper.rename(File(item.path), newName) }
+            loadPanel(isLeft, panel.currentPath)
+        }
+    }
+
+    fun encryptToVault(item: FileItem, isLeft: Boolean, masterPassword: String) {
+        viewModelScope.launch {
+            val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
+            _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
+            
+            withContext(Dispatchers.IO) { VaultImporter.encryptFile(getApplication(), item.path, masterPassword) }
+            loadPanel(isLeft, panel.currentPath)
+        }
+    }
+
+    fun decryptFromVault(item: FileItem, isLeft: Boolean, masterPassword: String) {
+        viewModelScope.launch {
+            val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
+            _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
+            
+            withContext(Dispatchers.IO) { VaultImporter.decryptFile(getApplication(), item.path, masterPassword) }
             loadPanel(isLeft, panel.currentPath)
         }
     }

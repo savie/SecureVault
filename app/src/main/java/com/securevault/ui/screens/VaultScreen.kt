@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -43,8 +44,14 @@ fun VaultScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("🔓 Vault", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
-            IconButton(onClick = onLock) {
-                Icon(Icons.Default.Lock, contentDescription = "Lock", tint = Color.White)
+            Row {
+                // TOMBOL REFRESH
+                IconButton(onClick = { viewModel.refreshFiles() }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+                }
+                IconButton(onClick = onLock) {
+                    Icon(Icons.Default.Lock, contentDescription = "Lock", tint = Color.White)
+                }
             }
         }
 
@@ -100,7 +107,9 @@ fun VaultItemCard(file: VaultItem, isEnabled: Boolean, onClick: () -> Unit) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(file.originalName, color = Color.White, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            Text("Tap to Restore • ${file.fileSize / 1024} KB", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+            Text("Tap to Restore • ${formatSize(file.fileSize)}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
+
+// Helper Format Size

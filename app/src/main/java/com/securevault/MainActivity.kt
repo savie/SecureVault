@@ -91,6 +91,7 @@ fun MainAppScreen(
 ) {
     val navController = rememberNavController()
     val vaultViewModel: com.securevault.ui.viewmodel.VaultViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val fileManagerViewModel: FileManagerViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 
     val navItems = listOf(
         BottomNavItem("Vault", Icons.Default.Home, "vault"),
@@ -130,16 +131,17 @@ fun MainAppScreen(
         }
     ) { padding ->
         NavHost(navController = navController, startDestination = "vault", modifier = Modifier.padding(padding)) {
-            composable("vault") { VaultScreen(masterPassword = masterPassword, onLock = onLock) }
+            composable("vault") { 
+                // TRIGGER REFRESH: Tiap masuk ke tab Vault, refresh datanya
+                LaunchedEffect(Unit) { vaultViewModel.refreshFiles() }
+                VaultScreen(masterPassword = masterPassword, onLock = onLock, viewModel = vaultViewModel) 
+            }
             composable("container") { 
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
                     Text("FolderLock Container (Fase 5)", color = Color.White) 
                 } 
             }
             composable("file_manager") { 
-                val fileManagerViewModel: FileManagerViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-                
-                // BackHandler balik lagi ke sini
                 BackHandler(enabled = true) {
                     val moved = fileManagerViewModel.navigateUp(isLeft = true)
                     if (!moved) {
@@ -151,7 +153,10 @@ fun MainAppScreen(
                     }
                 }
 
-                FileManagerScreen(viewModel = fileManagerViewModel)
+                FileManagerScreen(
+                    masterPassword = masterPassword,
+                    viewModel = fileManagerViewModel
+                )
             }
             composable("settings") { 
                 SettingsScreen(
