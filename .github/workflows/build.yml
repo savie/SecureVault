@@ -18,16 +18,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          # INI KUNCI PERBAIKANNYA: Hanya install platform-tools, jangan 'tools'
-          packages: 'platform-tools'
+      # KITA HAPUS LANGKAH 'Setup Android SDK' KARENA SDK SUDAH ADA DI RUNNER
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build Debug APK
+      - name: Build Debug APK (with stacktrace)
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK Artifact
