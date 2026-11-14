@@ -134,7 +134,7 @@ fun MainAppScreen(
             }
             composable("file_manager") { 
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
-                    Text("File Manager Explorer (Fase 4)", color = Color.White) 
+                    com.securevault.ui.screens.FileManagerScreen() 
                 } 
             }
             composable("settings") { 
