@@ -9,21 +9,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.fragment.app.FragmentActivity // PERUBAHAN DI SINI
+import androidx.fragment.app.FragmentActivity
 import com.securevault.ui.screens.SetupScreen
 import com.securevault.ui.screens.UnlockScreen
 import com.securevault.ui.screens.VaultScreen
 import com.securevault.ui.theme.SecureVaultTheme
 
-class MainActivity : FragmentActivity() { // UBAH KE FRAGMENTACTIVITY
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             SecureVaultTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     VaultApp()
                 }
             }
@@ -50,6 +47,7 @@ fun VaultApp() {
             onUnlock = { unlocked = true }
         )
         else -> VaultScreen(
+            masterPassword = savedPassword!!, // <-- Kirim password ke Vault
             onLock = { unlocked = false }
         )
     }
