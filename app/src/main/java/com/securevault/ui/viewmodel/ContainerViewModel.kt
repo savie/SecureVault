@@ -32,10 +32,10 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun createContainer(name: String, password: String) {
+    fun createContainer(name: String, password: String, useMasterPassword: Boolean, enableBiometric: Boolean) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, message = "Creating container...")
-            val success = repository.createContainer(name, password)
+            val success = repository.createContainer(name, password, useMasterPassword, enableBiometric)
             if (success) {
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container '$name' created successfully!")
                 refreshContainers()

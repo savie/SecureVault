@@ -2,6 +2,8 @@ package com.securevault.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,7 +24,10 @@ import com.securevault.ui.viewmodel.ContainerViewModel
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun ContainerScreen(viewModel: ContainerViewModel = viewModel()) {
+fun ContainerScreen(
+    masterPassword: String,
+    viewModel: ContainerViewModel = viewModel()
+) {
     val uiState by viewModel.uiState.collectAsState()
     
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -33,6 +38,9 @@ fun ContainerScreen(viewModel: ContainerViewModel = viewModel()) {
     var newName by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+    
+    var useMasterPassword by remember { mutableStateOf(false) }
+    var enableBiometric by remember { mutableStateOf(false) }
     
     // Password Visibility Toggles
     var isPasswordVisible by remember { mutableStateOf(false) }
@@ -49,6 +57,7 @@ fun ContainerScreen(viewModel: ContainerViewModel = viewModel()) {
             FloatingActionButton(
                 onClick = { 
                     newName = ""; newPassword = ""; confirmPassword = ""
+                    useMasterPassword = false; enableBiometric = false
                     isPasswordVisible = false; isConfirmVisible = false
                     showCreateDialog = true 
                 },
@@ -96,7 +105,7 @@ fun ContainerScreen(viewModel: ContainerViewModel = viewModel()) {
             onDismissRequest = { showCreateDialog = false },
             title = { Text("Create New Container", color = Color.White) },
             text = {
-                Column {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     OutlinedTextField(
                         value = newName,
                         onValueChange = { newName = it },
@@ -105,41 +114,76 @@ fun ContainerScreen(viewModel: ContainerViewModel = viewModel()) {
                         colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = newPassword,
-                        onValueChange = { newPassword = it },
-                        label = { Text("Container Password") },
-                        singleLine = true,
-                        visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            val icon = if (isPasswordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
-                            IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
-                                Icon(imageVector = icon, contentDescription = "Toggle Password", tint = Color.Gray)
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-                    )
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = useMasterPassword,
+                            onCheckedChange = { useMasterPassword = it },
+                            colors = CheckboxDefaults.colors(checkedColor = Color.White, uncheckedColor = Color.Gray)
+                        )
+                        Text("Use Master Password", color = Color.White)
+                    }
+                    Text("Note: If you change Master Password, this container will require the old one.", color = Color.Gray, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp))
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = confirmPassword,
-                        onValueChange = { confirmPassword = it },
-                        label = { Text("Confirm Password") },
-                        singleLine = true,
-                        visualTransformation = if (isConfirmVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            val icon = if (isConfirmVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
-                            IconButton(onClick = { isConfirmVisible = !isConfirmVisible }) {
-                                Icon(imageVector = icon, contentDescription = "Toggle Confirm Password", tint = Color.Gray)
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-                    )
+
+                    if (!useMasterPassword) {
+                        OutlinedTextField(
+                            value = newPassword,
+                            onValueChange = { newPassword = it },
+                            label = { Text("Container Password") },
+                            singleLine = true,
+                            enabled = !useMasterPassword,
+                            visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                val icon = if (isPasswordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
+                                IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                                    Icon(imageVector = icon, contentDescription = "Toggle Password", tint = Color.Gray)
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                                disabledTextColor = Color.Gray, disabledBorderColor = Color.DarkGray
+                            )
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = confirmPassword,
+                            onValueChange = { confirmPassword = it },
+                            label = { Text("Confirm Password") },
+                            singleLine = true,
+                            enabled = !useMasterPassword,
+                            visualTransformation = if (isConfirmVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                val icon = if (isConfirmVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
+                                IconButton(onClick = { isConfirmVisible = !isConfirmVisible }) {
+                                    Icon(imageVector = icon, contentDescription = "Toggle Confirm Password", tint = Color.Gray)
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                                disabledTextColor = Color.Gray, disabledBorderColor = Color.DarkGray
+                            )
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = enableBiometric,
+                            onCheckedChange = { enableBiometric = it },
+                            colors = CheckboxDefaults.colors(checkedColor = Color.White, uncheckedColor = Color.Gray)
+                        )
+                        Text("Enable Biometric Unlock", color = Color.White)
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (newName.isNotBlank() && newPassword == confirmPassword && newPassword.length >= 4) {
-                        viewModel.createContainer(newName, newPassword)
+                    val finalPassword = if (useMasterPassword) masterPassword else newPassword
+                    val isValid = if (useMasterPassword) true else (newPassword == confirmPassword && newPassword.length >= 4)
+                    
+                    if (newName.isNotBlank() && isValid) {
+                        viewModel.createContainer(newName, finalPassword, useMasterPassword, enableBiometric)
                         showCreateDialog = false
                     }
                 }) { Text("Create", color = Color.Green) }
@@ -198,4 +242,4 @@ fun ContainerCard(item: ContainerItem, onClick: () -> Unit, onLongClick: () -> U
         }
     }
 }
-// formatSize dipindah/dihapus karena udah ada di FileManagerScreen.kt / VaultScreen.kt
+// formatSize TIDAK ditulis di sini karena udah ada di FileManagerScreen.kt

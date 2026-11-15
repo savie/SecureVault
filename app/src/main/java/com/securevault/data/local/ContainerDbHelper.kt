@@ -11,10 +11,13 @@ data class ContainerItem(
     val filePath: String,
     val isMounted: Boolean,
     val size: Long,
-    val createdAt: Long
+    val createdAt: Long,
+    val usesMasterPassword: Boolean,
+    val biometricEnabled: Boolean
 )
 
-class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVaultContainers.db", null, 1) {
+// Naikin versi DB jadi 2
+class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVaultContainers.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         val createTable = """
@@ -25,18 +28,27 @@ class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVau
                 passwordHash TEXT,
                 isMounted INTEGER,
                 size INTEGER,
-                createdAt INTEGER
+                createdAt INTEGER,
+                usesMasterPassword INTEGER,
+                biometricEnabled INTEGER,
+                encryptedPassword TEXT
             )
         """.trimIndent()
         db.execSQL(createTable)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS containers")
-        onCreate(db)
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE containers ADD COLUMN usesMasterPassword INTEGER DEFAULT 0")
+            db.execSQL("ALTER TABLE containers ADD COLUMN biometricEnabled INTEGER DEFAULT 0")
+            db.execSQL("ALTER TABLE containers ADD COLUMN encryptedPassword TEXT")
+        }
     }
 
-    fun insertContainer(id: String, name: String, filePath: String, passwordHash: String) {
+    fun insertContainer(
+        id: String, name: String, filePath: String, passwordHash: String,
+        usesMasterPassword: Boolean, biometricEnabled: Boolean, encryptedPassword: String?
+    ) {
         val db = writableDatabase
         val values = ContentValues().apply {
             put("id", id)
@@ -46,6 +58,9 @@ class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVau
             put("isMounted", 0)
             put("size", 0)
             put("createdAt", System.currentTimeMillis())
+            put("usesMasterPassword", if (usesMasterPassword) 1 else 0)
+            put("biometricEnabled", if (biometricEnabled) 1 else 0)
+            put("encryptedPassword", encryptedPassword)
         }
         db.insert("containers", null, values)
         db.close()
@@ -63,7 +78,9 @@ class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVau
                     filePath = cursor.getString(2),
                     isMounted = cursor.getInt(4) == 1,
                     size = cursor.getLong(5),
-                    createdAt = cursor.getLong(6)
+                    createdAt = cursor.getLong(6),
+                    usesMasterPassword = cursor.getInt(7) == 1,
+                    biometricEnabled = cursor.getInt(8) == 1
                 ))
             } while (cursor.moveToNext())
         }

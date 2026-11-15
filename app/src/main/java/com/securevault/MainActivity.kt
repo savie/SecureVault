@@ -26,9 +26,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.securevault.ui.screens.ContainerScreen
 import com.securevault.ui.screens.FileManagerScreen
 import com.securevault.ui.screens.SettingsScreen
-import com.securevault.ui.screens.ContainerScreen
 import com.securevault.ui.screens.SetupScreen
 import com.securevault.ui.screens.UnlockScreen
 import com.securevault.ui.screens.VaultScreen
@@ -133,14 +133,11 @@ fun MainAppScreen(
     ) { padding ->
         NavHost(navController = navController, startDestination = "vault", modifier = Modifier.padding(padding)) {
             composable("vault") { 
-                // TRIGGER REFRESH: Tiap masuk ke tab Vault, refresh datanya
                 LaunchedEffect(Unit) { vaultViewModel.refreshFiles() }
                 VaultScreen(masterPassword = masterPassword, onLock = onLock, viewModel = vaultViewModel) 
             }
             composable("container") { 
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
-                    com.securevault.ui.screens.ContainerScreen() 
-                } 
+                ContainerScreen(masterPassword = masterPassword) 
             }
             composable("file_manager") { 
                 BackHandler(enabled = true) {
