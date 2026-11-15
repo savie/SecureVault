@@ -28,6 +28,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.securevault.ui.screens.FileManagerScreen
 import com.securevault.ui.screens.SettingsScreen
+import com.securevault.ui.screens.ContainerScreen
 import com.securevault.ui.screens.SetupScreen
 import com.securevault.ui.screens.UnlockScreen
 import com.securevault.ui.screens.VaultScreen
@@ -138,7 +139,7 @@ fun MainAppScreen(
             }
             composable("container") { 
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
-                    Text("FolderLock Container (Fase 5)", color = Color.White) 
+                    com.securevault.ui.screens.ContainerScreen() 
                 } 
             }
             composable("file_manager") { 
