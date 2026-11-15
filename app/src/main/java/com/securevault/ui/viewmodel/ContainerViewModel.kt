@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File // <-- INI YANG KURANG TADI BOS
 
 data class ContainerUiState(
     val isLoading: Boolean = false,
@@ -54,6 +55,33 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
                 refreshContainers()
             } else {
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Failed to delete.")
+            }
+        }
+    }
+
+    // --- MOUNT ---
+    fun mountContainer(item: ContainerItem, password: String, onSuccess: (File) -> Unit) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, message = "Opening container...")
+            val mountDir = repository.mountContainer(item, password)
+            if (mountDir != null) {
+                _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container '${item.name}' opened!")
+                onSuccess(mountDir)
+            } else {
+                _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Failed to open. Wrong password or corrupt file.")
+            }
+        }
+    }
+
+    // --- UNMOUNT ---
+    fun unmountContainer(item: ContainerItem, password: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, message = "Closing container...")
+            val success = repository.unmountContainer(item, password)
+            if (success) {
+                _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container '${item.name}' closed.")
+            } else {
+                _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Failed to close.")
             }
         }
     }
