@@ -8,6 +8,7 @@ import com.securevault.utils.FileOperationHelper
 import com.securevault.utils.FileResult
 import com.securevault.utils.RootUtils
 import com.securevault.utils.VaultImporter
+import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -66,6 +67,14 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     private val forceRootPaths = listOf("/cache", "/bin", "/etc", "/sdcard", "/vendor", "/system", "/product", "/data", "/data/data", "/data/user", "/data/user/0")
 
     init {
+        // PENTING: Set flag global mount namespace untuk libsu
+        Shell.enableVerboseLogging = false
+        Shell.setDefaultBuilder(
+            Shell.Builder.create()
+                .setFlags(Shell.FLAG_MOUNT_MASTER) // Ini kuncinya!
+                .setTimeout(10)
+        )
+        
         loadPanel(isLeft = true, path = homePath)
         loadPanel(isLeft = false, path = homePath)
     }
@@ -81,12 +90,18 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 val list = mutableListOf<FileItem>()
                 val mustUseRoot = forceRootPaths.contains(cleanPath) || isRootAvailable
 
-                // PAKE STAT (Anti-gagal)
                 if (mustUseRoot && isRootAvailable) {
                     try {
-                        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "stat -c '%n|%s|%F' \"$cleanPath\"/* 2>/dev/null"))
-                        val output = process.inputStream.bufferedReader().readText()
-                        output.lines().forEach { line ->
+                        // PAKE LIBSU + STAT
+                        // Kalo /data/data pake for loop biar ga kena limit argumen
+                        val cmd = if (cleanPath == "/data/data" || cleanPath.startsWith("/data/data/")) {
+                            "for f in \"$cleanPath\"/*; do /system/bin/stat -c '%n|%s|%F' \"\$f\"; done 2>/dev/null"
+                        } else {
+                            "/system/bin/stat -c '%n|%s|%F' \"$cleanPath\"/* 2>/dev/null"
+                        }
+                        
+                        val result = Shell.cmd(cmd).exec()
+                        result.out.forEach { line ->
                             if (line.isNotEmpty()) {
                                 val parts = line.split("|")
                                 if (parts.size == 3) {
