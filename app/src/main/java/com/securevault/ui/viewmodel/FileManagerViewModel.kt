@@ -78,12 +78,11 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         loadPanel(isLeft = false, path = homePath)
     }
 
-    // Helper: cek apakah item ini virtual container
+    // FIX 2: Cek parent folder persis "containers_temp" (bukan contains)
     private fun isVirtualContainer(item: FileItem): Boolean {
-        return item.path.contains("/containers_temp/")
+        return File(item.path).parentFile?.name == "containers_temp"
     }
 
-    // Refresh kedua panel (buat sinkronisasi mount status)
     fun refreshAllPanels() {
         refreshPanel(true)
         refreshPanel(false)
@@ -117,7 +116,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                         mounted.forEach { c ->
                             val tempPath = File(containersTempRoot, c.id)
                             if (tempPath.exists()) {
-                                list.add(FileItem("📦 ${c.name}", tempPath.absolutePath, true, 0L))
+                                list.add(FileItem("📦 ${c.name}", tempPath.absolutePath, true, c.size))
                             }
                         }
                     } catch (e: Exception) { /* ignore */ }
@@ -208,7 +207,6 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun promptPaste(sourceItem: FileItem, action: ClipboardAction, isLeftSource: Boolean) {
-        // FIX: Cek berdasarkan path, bukan nama
         if (isVirtualContainer(sourceItem)) {
             val currentPanel = if (isLeftSource) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (isLeftSource) {
@@ -287,7 +285,6 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     fun clearConflict() { _state.value = _state.value.copy(pendingConflict = null) }
 
     fun deleteFile(item: FileItem, isLeft: Boolean) {
-        // FIX: Cek berdasarkan path (containers_temp)
         if (isVirtualContainer(item)) {
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (isLeft) {
@@ -306,7 +303,6 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun renameFile(item: FileItem, newName: String, isLeft: Boolean) {
-        // FIX: Cek berdasarkan path (containers_temp)
         if (isVirtualContainer(item)) {
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (isLeft) {

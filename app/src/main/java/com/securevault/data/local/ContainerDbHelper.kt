@@ -9,6 +9,7 @@ data class ContainerItem(
     val id: String,
     val name: String,
     val filePath: String,
+    val passwordHash: String,
     val isMounted: Boolean,
     val size: Long,
     val createdAt: Long,
@@ -16,7 +17,7 @@ data class ContainerItem(
     val biometricEnabled: Boolean
 )
 
-class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVaultContainers.db", null, 2) {
+class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVaultContainers.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         val createTable = """
@@ -41,6 +42,10 @@ class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVau
             db.execSQL("ALTER TABLE containers ADD COLUMN usesMasterPassword INTEGER DEFAULT 0")
             db.execSQL("ALTER TABLE containers ADD COLUMN biometricEnabled INTEGER DEFAULT 0")
             db.execSQL("ALTER TABLE containers ADD COLUMN encryptedPassword TEXT")
+        }
+        if (oldVersion < 3) {
+            db.execSQL("DROP TABLE IF EXISTS containers")
+            onCreate(db)
         }
     }
 
@@ -75,6 +80,7 @@ class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVau
                     id = cursor.getString(0),
                     name = cursor.getString(1),
                     filePath = cursor.getString(2),
+                    passwordHash = cursor.getString(3),
                     isMounted = cursor.getInt(4) == 1,
                     size = cursor.getLong(5),
                     createdAt = cursor.getLong(6),
@@ -102,6 +108,16 @@ class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVau
         val db = writableDatabase
         val values = ContentValues().apply {
             put("isMounted", if (isMounted) 1 else 0)
+        }
+        db.update("containers", values, "id = ?", arrayOf(id))
+        db.close()
+    }
+
+    // FUNGSI BARU: Update size
+    fun updateSize(id: String, size: Long) {
+        val db = writableDatabase
+        val values = ContentValues().apply {
+            put("size", size)
         }
         db.update("containers", values, "id = ?", arrayOf(id))
         db.close()

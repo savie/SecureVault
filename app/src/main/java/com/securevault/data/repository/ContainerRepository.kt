@@ -2,6 +2,7 @@ package com.securevault.data.repository
 
 import android.content.Context
 import android.os.Environment
+import com.securevault.crypto.CryptoManager
 import com.securevault.data.local.ContainerDbHelper
 import com.securevault.data.local.ContainerItem
 import com.securevault.utils.ContainerEngine
@@ -43,13 +44,15 @@ class ContainerRepository(private val context: Context) {
 
             if (!success) return@withContext false
 
-            val passwordHash = password 
+            val passwordHash = CryptoManager.hashPassword(password)
             val encryptedPassword = if (enableBiometric) KeystoreHelper.encrypt(password) else null
 
             dbHelper.insertContainer(
                 id, name, file.absolutePath, passwordHash,
                 useMasterPassword, enableBiometric, encryptedPassword
             )
+            // FIX 1: Update size saat create
+            dbHelper.updateSize(id, file.length())
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -106,6 +109,10 @@ class ContainerRepository(private val context: Context) {
     }
 
     suspend fun mountContainer(item: ContainerItem, password: String): File? = withContext(Dispatchers.IO) {
+        if (!CryptoManager.verifyPassword(password, item.passwordHash)) {
+            return@withContext null
+        }
+
         val tempDir = File(context.filesDir, "containers_temp/${item.id}")
         if (tempDir.exists()) tempDir.deleteRecursively()
         tempDir.mkdirs()
@@ -132,11 +139,12 @@ class ContainerRepository(private val context: Context) {
         if (success) {
             tempDir.deleteRecursively()
             dbHelper.updateMountStatus(item.id, false)
+            // FIX 1: Update size saat unmount
+            dbHelper.updateSize(item.id, containerFile.length())
         }
         success
     }
 
-    // --- AUTO-LOCK: Lock semua container yang lagi mounted ---
     suspend fun autoLockAll(): Int = withContext(Dispatchers.IO) {
         var lockedCount = 0
         val sessions = ContainerSessionManager.getAllSessions()
@@ -153,6 +161,7 @@ class ContainerRepository(private val context: Context) {
                 if (success) {
                     tempDir.deleteRecursively()
                     dbHelper.updateMountStatus(c.id, false)
+                    dbHelper.updateSize(c.id, containerFile.length()) // FIX 1: Update size di auto-lock
                     ContainerSessionManager.removeSession(c.id)
                     lockedCount++
                 }
