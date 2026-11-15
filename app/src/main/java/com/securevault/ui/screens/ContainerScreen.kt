@@ -2,11 +2,11 @@ package com.securevault.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.securevault.data.local.ContainerItem
 import com.securevault.ui.viewmodel.ContainerViewModel
@@ -45,6 +46,22 @@ fun ContainerScreen(
     // Password Visibility Toggles
     var isPasswordVisible by remember { mutableStateOf(false) }
     var isConfirmVisible by remember { mutableStateOf(false) }
+
+    // Password Strength Calculation
+    val isMinLength = newPassword.length >= 8
+    val hasUpperCase = newPassword.any { it.isUpperCase() }
+    val hasLowerCase = newPassword.any { it.isLowerCase() }
+    val hasDigit = newPassword.any { it.isDigit() }
+    val hasSymbol = newPassword.any { !it.isLetterOrDigit() }
+    val isStrong = isMinLength && hasUpperCase && hasLowerCase && hasDigit && hasSymbol
+
+    var strengthColor = Color.Gray
+    var strengthText = "Too Short"
+    if (newPassword.isNotEmpty()) {
+        if (isStrong) { strengthColor = Color(0xFF4CAF50); strengthText = "Strong" }
+        else if (isMinLength && (hasUpperCase || hasDigit || hasSymbol)) { strengthColor = Color(0xFFFFC107); strengthText = "Medium" }
+        else { strengthColor = Color(0xFFF44336); strengthText = "Weak" }
+    }
 
     Scaffold(
         topBar = {
@@ -146,6 +163,21 @@ fun ContainerScreen(
                             )
                         )
                         Spacer(Modifier.height(8.dp))
+                        
+                        // Strength Indicator
+                        if (newPassword.isNotEmpty()) {
+                            Text("Strength: $strengthText", color = strengthColor, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp))
+                            Spacer(Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { if (isStrong) 1f else if (strengthText == "Medium") 0.5f else 0.25f },
+                                color = strengthColor,
+                                modifier = Modifier.fillMaxWidth().height(4.dp)
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text("Must contain: 8+ chars, A-Z, a-z, 0-9, symbol.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        
                         OutlinedTextField(
                             value = confirmPassword,
                             onValueChange = { confirmPassword = it },
@@ -180,7 +212,7 @@ fun ContainerScreen(
             confirmButton = {
                 TextButton(onClick = {
                     val finalPassword = if (useMasterPassword) masterPassword else newPassword
-                    val isValid = if (useMasterPassword) true else (newPassword == confirmPassword && newPassword.length >= 4)
+                    val isValid = if (useMasterPassword) true else (isStrong && newPassword == confirmPassword)
                     
                     if (newName.isNotBlank() && isValid) {
                         viewModel.createContainer(newName, finalPassword, useMasterPassword, enableBiometric)
