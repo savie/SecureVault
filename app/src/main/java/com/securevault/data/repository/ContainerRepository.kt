@@ -35,7 +35,6 @@ class ContainerRepository(private val context: Context) {
                 counter++
             }
 
-            // Bikin container kosong yang valid (pake engine)
             val emptyFolder = File(context.cacheDir, "empty_temp")
             emptyFolder.mkdirs()
             val success = ContainerEngine.packFolder(emptyFolder, file, password)
@@ -43,7 +42,6 @@ class ContainerRepository(private val context: Context) {
 
             if (!success) return@withContext false
 
-            // TODO: Hash password (Fase 5.3)
             val passwordHash = password 
             val encryptedPassword = if (enableBiometric) KeystoreHelper.encrypt(password) else null
 
@@ -73,7 +71,32 @@ class ContainerRepository(private val context: Context) {
         }
     }
 
-    // --- MOUNT (Buka Container) ---
+    suspend fun renameContainer(item: ContainerItem, newName: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            if (item.isMounted) return@withContext false // Nggak bisa rename kalo lagi kebuka
+
+            val oldFile = File(item.filePath)
+            val dir = oldFile.parentFile ?: return@withContext false
+
+            val safeName = newName.replace(Regex("[^a-zA-Z0-9_\\- ]"), "_").trim()
+            val finalSafeName = if (safeName.isEmpty()) "Container" else safeName
+
+            var newFile = File(dir, "$finalSafeName.svct")
+            var counter = 1
+            while (newFile.exists()) {
+                newFile = File(dir, "$finalSafeName ($counter).svct")
+                counter++
+            }
+
+            if (!oldFile.renameTo(newFile)) return@withContext false
+            dbHelper.updateContainer(item.id, newName, newFile.absolutePath)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // --- MOUNT ---
     suspend fun mountContainer(item: ContainerItem, password: String): File? = withContext(Dispatchers.IO) {
         val tempDir = File(context.filesDir, "containers_temp/${item.id}")
         if (tempDir.exists()) tempDir.deleteRecursively()
@@ -83,14 +106,15 @@ class ContainerRepository(private val context: Context) {
         val success = ContainerEngine.unpackContainer(containerFile, tempDir, password)
         
         if (success) {
-            tempDir // Return folder path
+            dbHelper.updateMountStatus(item.id, true)
+            tempDir
         } else {
             tempDir.deleteRecursively()
             null
         }
     }
 
-    // --- UNMOUNT (Tutup Container) ---
+    // --- UNMOUNT ---
     suspend fun unmountContainer(item: ContainerItem, password: String): Boolean = withContext(Dispatchers.IO) {
         val tempDir = File(context.filesDir, "containers_temp/${item.id}")
         if (!tempDir.exists()) return@withContext false
@@ -100,12 +124,8 @@ class ContainerRepository(private val context: Context) {
         
         if (success) {
             tempDir.deleteRecursively()
+            dbHelper.updateMountStatus(item.id, false)
         }
         success
-    }
-
-    fun isMounted(containerId: String): Boolean {
-        val tempDir = File(context.filesDir, "containers_temp/$containerId")
-        return tempDir.exists()
     }
 }

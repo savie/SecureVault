@@ -16,7 +16,6 @@ data class ContainerItem(
     val biometricEnabled: Boolean
 )
 
-// Naikin versi DB jadi 2
 class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVaultContainers.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -87,6 +86,25 @@ class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVau
         cursor.close()
         db.close()
         return list
+    }
+
+    fun updateContainer(id: String, newName: String, newPath: String) {
+        val db = writableDatabase
+        val values = ContentValues().apply {
+            put("name", newName)
+            put("filePath", newPath)
+        }
+        db.update("containers", values, "id = ?", arrayOf(id))
+        db.close()
+    }
+
+    fun updateMountStatus(id: String, isMounted: Boolean) {
+        val db = writableDatabase
+        val values = ContentValues().apply {
+            put("isMounted", if (isMounted) 1 else 0)
+        }
+        db.update("containers", values, "id = ?", arrayOf(id))
+        db.close()
     }
 
     fun deleteContainer(id: String) {

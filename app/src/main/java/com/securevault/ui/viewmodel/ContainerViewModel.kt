@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File // <-- INI YANG KURANG TADI BOS
+import java.io.File
 
 data class ContainerUiState(
     val isLoading: Boolean = false,
@@ -59,13 +59,26 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // --- MOUNT ---
+    fun renameContainer(item: ContainerItem, newName: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, message = "Renaming container...")
+            val success = repository.renameContainer(item, newName)
+            if (success) {
+                _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container renamed to '$newName'.")
+                refreshContainers()
+            } else {
+                _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Failed to rename. Make sure container is locked.")
+            }
+        }
+    }
+
     fun mountContainer(item: ContainerItem, password: String, onSuccess: (File) -> Unit) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, message = "Opening container...")
             val mountDir = repository.mountContainer(item, password)
             if (mountDir != null) {
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container '${item.name}' opened!")
+                refreshContainers() // Refresh biar status isMounted ke-update
                 onSuccess(mountDir)
             } else {
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Failed to open. Wrong password or corrupt file.")
@@ -73,13 +86,13 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // --- UNMOUNT ---
     fun unmountContainer(item: ContainerItem, password: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, message = "Closing container...")
             val success = repository.unmountContainer(item, password)
             if (success) {
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container '${item.name}' closed.")
+                refreshContainers()
             } else {
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Failed to close.")
             }
