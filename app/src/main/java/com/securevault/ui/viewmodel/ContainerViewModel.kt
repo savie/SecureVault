@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.securevault.data.local.ContainerItem
 import com.securevault.data.repository.ContainerRepository
+import com.securevault.utils.ContainerSessionManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,7 +25,16 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
     private val _uiState = MutableStateFlow(ContainerUiState())
     val uiState: StateFlow<ContainerUiState> = _uiState.asStateFlow()
 
-    init { refreshContainers() }
+    init { 
+        refreshContainers()
+        // Listener auto-lock dari background
+        viewModelScope.launch {
+            ContainerSessionManager.autoLockTrigger.collect {
+                refreshContainers()
+                _uiState.value = _uiState.value.copy(message = "🔒 Container auto-locked (inactivity)")
+            }
+        }
+    }
 
     fun refreshContainers() {
         viewModelScope.launch {
@@ -46,9 +56,6 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // ============================================================
-    // FIX: Handle delete yang ditolak karena mounted
-    // ============================================================
     fun deleteContainer(item: ContainerItem) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, message = "Deleting container...")
@@ -86,6 +93,7 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
             _uiState.value = _uiState.value.copy(isLoading = true, message = "Opening container...")
             val mountDir = repository.mountContainer(item, password)
             if (mountDir != null) {
+                ContainerSessionManager.addSession(item.id, password) // <-- Simpan password di memori
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container '${item.name}' opened!")
                 refreshContainers()
                 onSuccess(mountDir)
@@ -100,6 +108,7 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
             _uiState.value = _uiState.value.copy(isLoading = true, message = "Closing container...")
             val success = repository.unmountContainer(item, password)
             if (success) {
+                ContainerSessionManager.removeSession(item.id) // <-- Hapus dari memori
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container '${item.name}' closed.")
                 refreshContainers()
             } else {

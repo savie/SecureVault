@@ -5,6 +5,7 @@ import android.os.Environment
 import com.securevault.data.local.ContainerDbHelper
 import com.securevault.data.local.ContainerItem
 import com.securevault.utils.ContainerEngine
+import com.securevault.utils.ContainerSessionManager
 import com.securevault.utils.KeystoreHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -60,27 +61,17 @@ class ContainerRepository(private val context: Context) {
         dbHelper.getAllContainers()
     }
 
-    // ============================================================
-    // FIX: Blokir delete kalo container lagi mounted
-    // ============================================================
     suspend fun deleteContainer(item: ContainerItem): Boolean = withContext(Dispatchers.IO) {
         try {
-            // Cek database: kalo isMounted = true, TOLAK delete
             val current = dbHelper.getAllContainers().find { it.id == item.id }
-            if (current?.isMounted == true) {
-                return@withContext false // Blokir
-            }
+            if (current?.isMounted == true) return@withContext false
 
-            // Kalo aman (locked), baru hapus
-            // 1. Cleanup temp folder (jaga-jaga kalo ada sisa)
             val tempDir = File(context.filesDir, "containers_temp/${item.id}")
             if (tempDir.exists()) tempDir.deleteRecursively()
 
-            // 2. Hapus file .svct
             val file = File(item.filePath)
             if (file.exists()) file.delete()
 
-            // 3. Hapus dari DB
             dbHelper.deleteContainer(item.id)
             true
         } catch (e: Exception) {
@@ -143,5 +134,30 @@ class ContainerRepository(private val context: Context) {
             dbHelper.updateMountStatus(item.id, false)
         }
         success
+    }
+
+    // --- AUTO-LOCK: Lock semua container yang lagi mounted ---
+    suspend fun autoLockAll(): Int = withContext(Dispatchers.IO) {
+        var lockedCount = 0
+        val sessions = ContainerSessionManager.getAllSessions()
+        val containers = dbHelper.getAllContainers()
+
+        for (c in containers) {
+            if (c.isMounted) {
+                val pwd = sessions[c.id] ?: continue
+                val tempDir = File(context.filesDir, "containers_temp/${c.id}")
+                if (!tempDir.exists()) continue
+
+                val containerFile = File(c.filePath)
+                val success = ContainerEngine.packFolder(tempDir, containerFile, pwd)
+                if (success) {
+                    tempDir.deleteRecursively()
+                    dbHelper.updateMountStatus(c.id, false)
+                    ContainerSessionManager.removeSession(c.id)
+                    lockedCount++
+                }
+            }
+        }
+        lockedCount
     }
 }

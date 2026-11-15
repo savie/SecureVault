@@ -20,12 +20,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.securevault.data.repository.ContainerRepository
 import com.securevault.ui.screens.ContainerScreen
 import com.securevault.ui.screens.FileManagerScreen
 import com.securevault.ui.screens.SettingsScreen
@@ -34,12 +39,50 @@ import com.securevault.ui.screens.UnlockScreen
 import com.securevault.ui.screens.VaultScreen
 import com.securevault.ui.theme.SecureVaultTheme
 import com.securevault.ui.viewmodel.FileManagerViewModel
+import com.securevault.utils.ContainerSessionManager
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 data class BottomNavItem(val title: String, val icon: ImageVector, val route: String)
 
 class MainActivity : FragmentActivity() {
+    private var autoLockJob: Job? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // === AUTO-LOCK OBSERVER ===
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_STOP -> {
+                        val sessions = ContainerSessionManager.getAllSessions()
+                        if (sessions.isNotEmpty()) {
+                            val prefs = getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
+                            val delayMs = prefs.getLong("container_auto_lock_ms", 300_000L) // Default 5 menit
+                            if (delayMs > 0) {
+                                autoLockJob?.cancel()
+                                autoLockJob = lifecycleScope.launch {
+                                    delay(delayMs)
+                                    val repo = ContainerRepository(applicationContext)
+                                    val locked = repo.autoLockAll()
+                                    if (locked > 0) {
+                                        ContainerSessionManager.triggerAutoLockEvent()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Lifecycle.Event.ON_START -> {
+                        autoLockJob?.cancel()
+                        autoLockJob = null
+                    }
+                    else -> {}
+                }
+            }
+        )
+
         setContent {
             SecureVaultTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -139,8 +182,8 @@ fun MainAppScreen(
             composable("container") { 
                 ContainerScreen(masterPassword = masterPassword) 
             }
-            composable("file_manager") {
-                LaunchedEffect(Unit) { fileManagerViewModel.refreshAllPanels() } 
+            composable("file_manager") { 
+                LaunchedEffect(Unit) { fileManagerViewModel.refreshAllPanels() }
                 BackHandler(enabled = true) {
                     val moved = fileManagerViewModel.navigateUp(isLeft = true)
                     if (!moved) {
