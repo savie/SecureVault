@@ -3,6 +3,7 @@ package com.securevault.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.securevault.data.local.ContainerDbHelper
 import com.securevault.utils.ConflictAction
 import com.securevault.utils.FileOperationHelper
 import com.securevault.utils.FileResult
@@ -67,16 +68,25 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     private val forceRootPaths = listOf("/cache", "/bin", "/etc", "/sdcard", "/vendor", "/system", "/product", "/data", "/data/data", "/data/user", "/data/user/0")
 
     init {
-        // PENTING: Set flag global mount namespace untuk libsu
         Shell.enableVerboseLogging = false
         Shell.setDefaultBuilder(
             Shell.Builder.create()
-                .setFlags(Shell.FLAG_MOUNT_MASTER) // Ini kuncinya!
+                .setFlags(Shell.FLAG_MOUNT_MASTER)
                 .setTimeout(10)
         )
-        
         loadPanel(isLeft = true, path = homePath)
         loadPanel(isLeft = false, path = homePath)
+    }
+
+    // Helper: cek apakah item ini virtual container
+    private fun isVirtualContainer(item: FileItem): Boolean {
+        return item.path.contains("/containers_temp/")
+    }
+
+    // Refresh kedua panel (buat sinkronisasi mount status)
+    fun refreshAllPanels() {
+        refreshPanel(true)
+        refreshPanel(false)
     }
 
     fun loadPanel(isLeft: Boolean, path: String) {
@@ -88,18 +98,39 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
             val items = withContext(Dispatchers.IO) {
                 val list = mutableListOf<FileItem>()
-                val mustUseRoot = forceRootPaths.contains(cleanPath) || isRootAvailable
+                val dir = File(cleanPath)
+                val appFilesDir = getApplication<Application>().filesDir.absolutePath
+                val containersTempRoot = "$appFilesDir/containers_temp"
 
+                if (cleanPath.startsWith("$containersTempRoot/") || cleanPath == containersTempRoot) {
+                    val files = dir.listFiles()
+                    if (files != null) {
+                        files.forEach { list.add(FileItem(it.name, it.absolutePath, it.isDirectory, it.length())) }
+                    }
+                    return@withContext list
+                }
+
+                if (cleanPath == homePath) {
+                    try {
+                        val db = ContainerDbHelper(getApplication())
+                        val mounted = db.getAllContainers().filter { it.isMounted }
+                        mounted.forEach { c ->
+                            val tempPath = File(containersTempRoot, c.id)
+                            if (tempPath.exists()) {
+                                list.add(FileItem("📦 ${c.name}", tempPath.absolutePath, true, 0L))
+                            }
+                        }
+                    } catch (e: Exception) { /* ignore */ }
+                }
+
+                val mustUseRoot = forceRootPaths.contains(cleanPath) || isRootAvailable
                 if (mustUseRoot && isRootAvailable) {
                     try {
-                        // PAKE LIBSU + STAT
-                        // Kalo /data/data pake for loop biar ga kena limit argumen
                         val cmd = if (cleanPath == "/data/data" || cleanPath.startsWith("/data/data/")) {
-                            "for f in \"$cleanPath\"/*; do /system/bin/stat -c '%n|%s|%F' \"\$f\"; done 2>/dev/null"
+                            "/system/bin/find \"$cleanPath\" -maxdepth 1 -mindepth 1 -exec /system/bin/stat -c '%n|%s|%F' {} + 2>/dev/null"
                         } else {
                             "/system/bin/stat -c '%n|%s|%F' \"$cleanPath\"/* 2>/dev/null"
                         }
-                        
                         val result = Shell.cmd(cmd).exec()
                         result.out.forEach { line ->
                             if (line.isNotEmpty()) {
@@ -113,16 +144,16 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                                 }
                             }
                         }
-                    } catch (e: Exception) { /* Abaikan */ }
+                    } catch (e: Exception) { /* ignore */ }
                 }
 
                 if (list.isEmpty()) {
-                    val dir = File(cleanPath)
                     val files = dir.listFiles()
                     if (files != null) {
                         files.forEach { list.add(FileItem(it.name, it.absolutePath, it.isDirectory, it.length())) }
                     }
                 }
+
                 list
             }
 
@@ -140,6 +171,12 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     fun navigateUp(isLeft: Boolean): Boolean {
         val currentPanel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
         val current = currentPanel.currentPath
+        
+        val appFilesDir = getApplication<Application>().filesDir.absolutePath
+        if (current.startsWith("$appFilesDir/containers_temp/")) {
+            loadPanel(isLeft, homePath)
+            return true
+        }
         
         if (current == "/") { loadPanel(isLeft, homePath); return true }
         if (current == homePath) {
@@ -161,14 +198,26 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun sortItems(items: List<FileItem>, option: SortOption, ascending: Boolean): List<FileItem> {
+        val (mounted, regular) = items.partition { isVirtualContainer(it) }
         val comparator = when (option) {
             SortOption.NAME -> compareBy<FileItem> { !it.isDirectory }.thenBy { it.name.lowercase() }
             SortOption.SIZE -> compareBy<FileItem> { !it.isDirectory }.thenBy { it.size }
         }
-        return if (ascending) items.sortedWith(comparator) else items.sortedWith(comparator.reversed())
+        val sortedRegular = if (ascending) regular.sortedWith(comparator) else regular.sortedWith(comparator.reversed())
+        return mounted + sortedRegular
     }
 
     fun promptPaste(sourceItem: FileItem, action: ClipboardAction, isLeftSource: Boolean) {
+        // FIX: Cek berdasarkan path, bukan nama
+        if (isVirtualContainer(sourceItem)) {
+            val currentPanel = if (isLeftSource) _state.value.leftPanel else _state.value.rightPanel
+            _state.value = if (isLeftSource) {
+                _state.value.copy(leftPanel = currentPanel.copy(message = "❌ Cannot copy/move mounted container."))
+            } else {
+                _state.value.copy(rightPanel = currentPanel.copy(message = "❌ Cannot copy/move mounted container."))
+            }
+            return
+        }
         val targetPanel = if (isLeftSource) _state.value.rightPanel else _state.value.leftPanel
         _state.value = _state.value.copy(
             pendingPaste = PendingPaste(
@@ -238,6 +287,16 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     fun clearConflict() { _state.value = _state.value.copy(pendingConflict = null) }
 
     fun deleteFile(item: FileItem, isLeft: Boolean) {
+        // FIX: Cek berdasarkan path (containers_temp)
+        if (isVirtualContainer(item)) {
+            val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
+            _state.value = if (isLeft) {
+                _state.value.copy(leftPanel = panel.copy(message = "❌ Cannot delete mounted container. Lock it first from Container tab."))
+            } else {
+                _state.value.copy(rightPanel = panel.copy(message = "❌ Cannot delete mounted container. Lock it first from Container tab."))
+            }
+            return
+        }
         viewModelScope.launch {
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
@@ -247,6 +306,16 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun renameFile(item: FileItem, newName: String, isLeft: Boolean) {
+        // FIX: Cek berdasarkan path (containers_temp)
+        if (isVirtualContainer(item)) {
+            val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
+            _state.value = if (isLeft) {
+                _state.value.copy(leftPanel = panel.copy(message = "❌ Cannot rename mounted container. Rename it from Container tab."))
+            } else {
+                _state.value.copy(rightPanel = panel.copy(message = "❌ Cannot rename mounted container. Rename it from Container tab."))
+            }
+            return
+        }
         viewModelScope.launch {
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))

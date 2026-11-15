@@ -60,20 +60,38 @@ class ContainerRepository(private val context: Context) {
         dbHelper.getAllContainers()
     }
 
+    // ============================================================
+    // FIX: Blokir delete kalo container lagi mounted
+    // ============================================================
     suspend fun deleteContainer(item: ContainerItem): Boolean = withContext(Dispatchers.IO) {
         try {
+            // Cek database: kalo isMounted = true, TOLAK delete
+            val current = dbHelper.getAllContainers().find { it.id == item.id }
+            if (current?.isMounted == true) {
+                return@withContext false // Blokir
+            }
+
+            // Kalo aman (locked), baru hapus
+            // 1. Cleanup temp folder (jaga-jaga kalo ada sisa)
+            val tempDir = File(context.filesDir, "containers_temp/${item.id}")
+            if (tempDir.exists()) tempDir.deleteRecursively()
+
+            // 2. Hapus file .svct
             val file = File(item.filePath)
             if (file.exists()) file.delete()
+
+            // 3. Hapus dari DB
             dbHelper.deleteContainer(item.id)
             true
         } catch (e: Exception) {
+            e.printStackTrace()
             false
         }
     }
 
     suspend fun renameContainer(item: ContainerItem, newName: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            if (item.isMounted) return@withContext false // Nggak bisa rename kalo lagi kebuka
+            if (item.isMounted) return@withContext false
 
             val oldFile = File(item.filePath)
             val dir = oldFile.parentFile ?: return@withContext false
@@ -96,7 +114,6 @@ class ContainerRepository(private val context: Context) {
         }
     }
 
-    // --- MOUNT ---
     suspend fun mountContainer(item: ContainerItem, password: String): File? = withContext(Dispatchers.IO) {
         val tempDir = File(context.filesDir, "containers_temp/${item.id}")
         if (tempDir.exists()) tempDir.deleteRecursively()
@@ -114,7 +131,6 @@ class ContainerRepository(private val context: Context) {
         }
     }
 
-    // --- UNMOUNT ---
     suspend fun unmountContainer(item: ContainerItem, password: String): Boolean = withContext(Dispatchers.IO) {
         val tempDir = File(context.filesDir, "containers_temp/${item.id}")
         if (!tempDir.exists()) return@withContext false

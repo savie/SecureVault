@@ -46,6 +46,9 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    // ============================================================
+    // FIX: Handle delete yang ditolak karena mounted
+    // ============================================================
     fun deleteContainer(item: ContainerItem) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, message = "Deleting container...")
@@ -54,7 +57,10 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container deleted.")
                 refreshContainers()
             } else {
-                _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Failed to delete.")
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false, 
+                    message = "❌ Cannot delete while unlocked. Lock container first."
+                )
             }
         }
     }
@@ -67,7 +73,10 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container renamed to '$newName'.")
                 refreshContainers()
             } else {
-                _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Failed to rename. Make sure container is locked.")
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false, 
+                    message = "❌ Cannot rename while unlocked. Lock container first."
+                )
             }
         }
     }
@@ -78,7 +87,7 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
             val mountDir = repository.mountContainer(item, password)
             if (mountDir != null) {
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container '${item.name}' opened!")
-                refreshContainers() // Refresh biar status isMounted ke-update
+                refreshContainers()
                 onSuccess(mountDir)
             } else {
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Failed to open. Wrong password or corrupt file.")

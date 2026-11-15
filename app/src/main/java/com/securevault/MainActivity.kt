@@ -139,7 +139,8 @@ fun MainAppScreen(
             composable("container") { 
                 ContainerScreen(masterPassword = masterPassword) 
             }
-            composable("file_manager") { 
+            composable("file_manager") {
+                LaunchedEffect(Unit) { fileManagerViewModel.refreshAllPanels() } 
                 BackHandler(enabled = true) {
                     val moved = fileManagerViewModel.navigateUp(isLeft = true)
                     if (!moved) {

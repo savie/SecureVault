@@ -364,6 +364,7 @@ fun formatSize(size: Long): String {
 }
 
 fun getFileIcon(item: FileItem): ImageVector {
+    if (item.name.startsWith("📦")) return Icons.Default.FolderSpecial
     if (item.isDirectory) return Icons.Default.Folder
     val name = item.name.lowercase()
     return when {
@@ -381,6 +382,7 @@ fun getFileIcon(item: FileItem): ImageVector {
 }
 
 fun getIconColor(item: FileItem): Color {
+    if (item.name.startsWith("📦")) return Color(0xFF00BCD4)
     if (item.isDirectory) return Color(0xFFFFC107)
     val name = item.name.lowercase()
     return when {
