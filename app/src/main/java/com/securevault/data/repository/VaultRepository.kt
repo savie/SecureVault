@@ -11,6 +11,8 @@ import com.securevault.utils.StorageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.util.UUID
 
 class VaultRepository(private val context: Context) {
@@ -20,57 +22,110 @@ class VaultRepository(private val context: Context) {
 
     suspend fun encryptAndSaveFile(masterPassword: String, sourceUri: Uri): String = withContext(Dispatchers.IO) {
         val (originalName, mimeType, absolutePath) = FileHelper.getFileInfoFromUri(context, sourceUri)
-        
+
         val inputStream = context.contentResolver.openInputStream(sourceUri)
-        val originalBytes = inputStream?.readBytes() ?: throw Exception("Failed to read file")
-        inputStream.close()
-
-        if (originalBytes.isEmpty()) throw Exception("File is empty")
-
-        val salt = CryptoManager.generateSalt()
-        val key = CryptoManager.deriveKey(masterPassword.toCharArray(), salt)
-        val encryptedBytes = CryptoManager.encrypt(key, originalBytes)
+            ?: throw Exception("Failed to open file")
 
         val uuid = UUID.randomUUID().toString()
         val vaultDir = File(context.filesDir, "vault").apply { if (!exists()) mkdirs() }
-        File(vaultDir, "$uuid.svlt").writeBytes(salt + encryptedBytes)
-        
-        dbHelper.insertFile(uuid, originalName, mimeType, originalBytes.size.toLong(), absolutePath)
+        val destFile = File(vaultDir, "$uuid.svlt")
+
+        val salt = CryptoManager.generateSalt()
+        val key = CryptoManager.deriveKey(masterPassword.toCharArray(), salt)
+
+        var totalSize = 0L
+        FileOutputStream(destFile).use { output ->
+            // Header v2: MAGIC "SVLT" + SALT (no IV, karena IV per chunk)
+            output.write("SVLT".toByteArray(Charsets.UTF_8))
+            output.write(salt)
+
+            // Chunk-based encrypt (anti-Conscrypt-bug)
+            val countingInput = CountingInputStream(inputStream) { totalSize = it }
+            CryptoManager.encryptStream(key, countingInput, output)
+        }
+        inputStream.close()
+
+        if (totalSize == 0L) {
+            destFile.delete()
+            throw Exception("File is empty")
+        }
+
+        dbHelper.insertFile(uuid, originalName, mimeType, totalSize, absolutePath)
 
         var isDeleted = false
         try { if (context.contentResolver.delete(sourceUri, null, null) > 0) isDeleted = true } catch (e: Exception) {}
         if (!isDeleted) { try { if (File(absolutePath).delete()) isDeleted = true } catch (ex: Exception) {} }
         if (!isDeleted) RootUtils.deleteFileAsRoot(absolutePath)
 
-        absolutePath 
+        absolutePath
     }
 
     suspend fun decryptAndRestoreFile(masterPassword: String, item: VaultItem): String = withContext(Dispatchers.IO) {
         val vaultFile = File(File(context.filesDir, "vault"), "${item.uuid}.svlt")
         if (!vaultFile.exists()) throw Exception("File not found in vault")
 
-        val fileBytes = vaultFile.readBytes()
-        val salt = fileBytes.copyOfRange(0, 16)
-        val encryptedData = fileBytes.copyOfRange(16, fileBytes.size)
+        val tempFile = File(context.cacheDir, "restore_${System.currentTimeMillis()}.tmp")
 
+        // Read header: MAGIC "SVLT" (4B) + SALT (16B)
+        val header = ByteArray(20)
+        FileInputStream(vaultFile).use { input ->
+            if (input.read(header) != 20) throw Exception("Corrupt vault file")
+        }
+        val magic = String(header.copyOfRange(0, 4), Charsets.UTF_8)
+        if (magic != "SVLT") throw Exception("Invalid vault file (v1 file not supported by this version)")
+
+        val salt = header.copyOfRange(4, 20)
         val key = CryptoManager.deriveKey(masterPassword.toCharArray(), salt)
-        val decryptedBytes = CryptoManager.decrypt(key, encryptedData)
 
-        val savedLocation = StorageHelper.saveFile(context, item.originalName, item.mimeType, item.originalPath, decryptedBytes)
-            ?: throw Exception("Failed to restore. Access denied.")
+        val success = FileInputStream(vaultFile).use { input ->
+            input.skip(20) // Skip header
+            FileOutputStream(tempFile).use { output ->
+                CryptoManager.decryptStream(key, input, output)
+            }
+        }
 
+        if (!success) {
+            tempFile.delete()
+            throw Exception("Failed to decrypt (wrong password or corrupt file)")
+        }
+
+        val savedLocation = StorageHelper.saveFileFromTemp(
+            context, item.originalName, item.mimeType, item.originalPath, tempFile
+        ) ?: run {
+            tempFile.delete()
+            throw Exception("Failed to restore. Access denied.")
+        }
+
+        tempFile.delete()
         vaultFile.delete()
         dbHelper.deleteFile(item.uuid)
-        
         savedLocation
     }
 
-    // FUNGSI BARU: Hapus file dari Vault
     suspend fun deleteVaultFile(item: VaultItem) = withContext(Dispatchers.IO) {
         val vaultFile = File(File(context.filesDir, "vault"), "${item.uuid}.svlt")
         if (vaultFile.exists()) {
             if (!vaultFile.delete()) RootUtils.deleteFileAsRoot(vaultFile.absolutePath)
         }
         dbHelper.deleteFile(item.uuid)
+    }
+
+    // Helper: count total bytes read
+    private class CountingInputStream(
+        private val delegate: java.io.InputStream,
+        private val onRead: (Long) -> Unit
+    ) : java.io.InputStream() {
+        private var total = 0L
+        override fun read(): Int {
+            val b = delegate.read()
+            if (b != -1) { total++; onRead(total) }
+            return b
+        }
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            val n = delegate.read(b, off, len)
+            if (n > 0) { total += n; onRead(total) }
+            return n
+        }
+        override fun close() = delegate.close()
     }
 }

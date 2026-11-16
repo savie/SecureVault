@@ -335,7 +335,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
             
-            withContext(Dispatchers.IO) { VaultImporter.decryptFile(getApplication(), item.path, masterPassword) }
+            withContext(Dispatchers.IO) { VaultImporter.decryptFile(getApplication(), item.path, masterPassword, panel.currentPath) }
             loadPanel(isLeft, panel.currentPath)
         }
     }
