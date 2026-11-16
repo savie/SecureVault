@@ -4,6 +4,9 @@ import android.content.Context
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -18,7 +21,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -52,7 +60,6 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // === AUTO-LOCK OBSERVER ===
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             LifecycleEventObserver { _, event ->
                 when (event) {
@@ -60,16 +67,14 @@ class MainActivity : FragmentActivity() {
                         val sessions = ContainerSessionManager.getAllSessions()
                         if (sessions.isNotEmpty()) {
                             val prefs = getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
-                            val delayMs = prefs.getLong("container_auto_lock_ms", 300_000L) // Default 5 menit
+                            val delayMs = prefs.getLong("container_auto_lock_ms", 300_000L)
                             if (delayMs > 0) {
                                 autoLockJob?.cancel()
                                 autoLockJob = lifecycleScope.launch {
                                     delay(delayMs)
                                     val repo = ContainerRepository(applicationContext)
                                     val locked = repo.autoLockAll()
-                                    if (locked > 0) {
-                                        ContainerSessionManager.triggerAutoLockEvent()
-                                    }
+                                    if (locked > 0) ContainerSessionManager.triggerAutoLockEvent()
                                 }
                             }
                         }
@@ -137,6 +142,20 @@ fun MainAppScreen(
     val vaultViewModel: com.securevault.ui.viewmodel.VaultViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val fileManagerViewModel: FileManagerViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 
+    // State untuk hide on scroll
+    var isBottomBarVisible by remember { mutableStateOf(true) }
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: androidx.compose.ui.geometry.Offset, source: NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                if (source == NestedScrollSource.Drag) {
+                    if (available.y < -10) isBottomBarVisible = false
+                    if (available.y > 10) isBottomBarVisible = true
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+        }
+    }
+
     val navItems = listOf(
         BottomNavItem("Vault", Icons.Default.Home, "vault"),
         BottomNavItem("Container", Icons.Default.Lock, "container"),
@@ -146,35 +165,41 @@ fun MainAppScreen(
 
     Scaffold(
         bottomBar = {
-            NavigationBar(containerColor = Color(0xFF1E1E1E)) {
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentDestination = navBackStackEntry?.destination
+            AnimatedVisibility(
+                visible = isBottomBarVisible,
+                enter = slideInVertically(initialOffsetY = { it }),
+                exit = slideOutVertically(targetOffsetY = { it })
+            ) {
+                NavigationBar(containerColor = Color(0xFF1E1E1E)) {
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentDestination = navBackStackEntry?.destination
 
-                navItems.forEach { item ->
-                    NavigationBarItem(
-                        icon = { Icon(item.icon, contentDescription = item.title) },
-                        label = { Text(item.title) },
-                        selected = currentDestination?.hierarchy?.any { it.route == item.route } == true,
-                        onClick = {
-                            navController.navigate(item.route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color.Black,
-                            selectedTextColor = Color.White,
-                            indicatorColor = Color.White,
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray
+                    navItems.forEach { item ->
+                        NavigationBarItem(
+                            icon = { Icon(item.icon, contentDescription = item.title) },
+                            label = { Text(item.title) },
+                            selected = currentDestination?.hierarchy?.any { it.route == item.route } == true,
+                            onClick = {
+                                navController.navigate(item.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color.Black,
+                                selectedTextColor = Color.White,
+                                indicatorColor = Color.White,
+                                unselectedIconColor = Color.Gray,
+                                unselectedTextColor = Color.Gray
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
     ) { padding ->
-        NavHost(navController = navController, startDestination = "vault", modifier = Modifier.padding(padding)) {
+        NavHost(navController = navController, startDestination = "vault", modifier = Modifier.padding(padding).nestedScroll(nestedScrollConnection)) {
             composable("vault") { 
                 LaunchedEffect(Unit) { vaultViewModel.refreshFiles() }
                 VaultScreen(masterPassword = masterPassword, onLock = onLock, viewModel = vaultViewModel) 
@@ -194,18 +219,10 @@ fun MainAppScreen(
                         }
                     }
                 }
-
-                FileManagerScreen(
-                    masterPassword = masterPassword,
-                    viewModel = fileManagerViewModel
-                )
+                FileManagerScreen(masterPassword = masterPassword, viewModel = fileManagerViewModel)
             }
             composable("settings") { 
-                SettingsScreen(
-                    onLock = onLock, 
-                    biometricEnabled = biometricEnabled,
-                    onBiometricToggle = onBiometricToggle
-                ) 
+                SettingsScreen(onLock = onLock, biometricEnabled = biometricEnabled, onBiometricToggle = onBiometricToggle) 
             }
         }
     }

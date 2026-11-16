@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.securevault.data.local.VaultItem
 import com.securevault.ui.viewmodel.VaultViewModel
+import com.securevault.ui.components.AppTopBar
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -41,71 +42,72 @@ fun VaultScreen(
         if (uri != null) viewModel.encryptFile(masterPassword, uri)
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("🔓 Vault", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
-            Row {
-                IconButton(onClick = { viewModel.refreshFiles() }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+    Scaffold(
+        topBar = {
+            // FIX: Hapus tombol Lock. Cuma Refresh.
+            AppTopBar(
+                title = "Vault",
+                actions = {
+                    IconButton(onClick = { viewModel.refreshFiles() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+                    }
                 }
-                IconButton(onClick = onLock) {
-                    Icon(Icons.Default.Lock, contentDescription = "Lock", tint = Color.White)
+            )
+        },
+        containerColor = Color(0xFF121212)
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
+            if (uiState.isLoading) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Color.White)
+            }
+
+            uiState.message?.let {
+                Text(it, color = if (it.startsWith("✅")) Color.Green else Color.Red, modifier = Modifier.padding(vertical = 8.dp))
+            }
+
+            Button(
+                onClick = { filePickerLauncher.launch("*/*") },
+                enabled = !uiState.isLoading,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add")
+                Spacer(Modifier.width(8.dp))
+                Text("Add File to Vault", fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            if (uiState.files.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(64.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text("Vault is empty", color = Color.Gray, style = MaterialTheme.typography.titleMedium)
+                        Text("Tap + to add files securely", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        if (uiState.isLoading) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Color.White)
-        }
-
-        uiState.message?.let {
-            Text(it, color = if (it.startsWith("✅")) Color.Green else Color.Red, modifier = Modifier.padding(vertical = 8.dp))
-        }
-
-        Button(
-            onClick = { filePickerLauncher.launch("*/*") },
-            enabled = !uiState.isLoading,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
-        ) {
-            Icon(Icons.Default.Add, contentDescription = "Add")
-            Spacer(Modifier.width(8.dp))
-            Text("Add File to Vault", fontWeight = FontWeight.Bold)
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        if (uiState.files.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Vault is empty.", color = Color.Gray)
-            }
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(uiState.files) { file ->
-                    VaultItemCard(
-                        file = file, 
-                        isEnabled = !uiState.isLoading,
-                        onClick = { selectedFile = file; showMenu = true }
-                    )
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(uiState.files) { file ->
+                        VaultItemCard(
+                            file = file, 
+                            isEnabled = !uiState.isLoading,
+                            onClick = { selectedFile = file; showMenu = true }
+                        )
+                    }
                 }
             }
         }
     }
 
-    // BOTTOM SHEET MENU
     if (showMenu && selectedFile != null) {
         ModalBottomSheet(
             onDismissRequest = { showMenu = false },
             containerColor = Color(0xFF1E1E1E)
         ) {
             Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-                Text(selectedFile!!.originalName, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(selectedFile!!.originalName, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(selectedFile!!.originalPath, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(16.dp))
 
@@ -137,7 +139,6 @@ fun VaultScreen(
         }
     }
 
-    // DIALOG DELETE
     if (showDeleteDialog && selectedFile != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -156,7 +157,6 @@ fun VaultScreen(
         )
     }
 
-    // DIALOG PROPERTIES
     if (showPropertiesDialog && selectedFile != null) {
         val date = SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault()).format(Date(selectedFile!!.timestamp))
         AlertDialog(
@@ -179,7 +179,7 @@ fun VaultScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class) // <--- INI YANG KURANG TADI BOS
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun VaultItemCard(file: VaultItem, isEnabled: Boolean, onClick: () -> Unit) {
     Card(
@@ -195,4 +195,3 @@ fun VaultItemCard(file: VaultItem, isEnabled: Boolean, onClick: () -> Unit) {
         }
     }
 }
-// Fungsi PropertyRow & formatSize TIDAK ditulis di sini karena udah ada di FileManagerScreen.kt

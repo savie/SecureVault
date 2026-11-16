@@ -78,7 +78,6 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         loadPanel(isLeft = false, path = homePath)
     }
 
-    // FIX 2: Cek parent folder persis "containers_temp" (bukan contains)
     private fun isVirtualContainer(item: FileItem): Boolean {
         return File(item.path).parentFile?.name == "containers_temp"
     }
@@ -167,6 +166,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         loadPanel(isLeft, path)
     }
 
+    // FIX: Stop di "/" (root system), jangan balik ke home
     fun navigateUp(isLeft: Boolean): Boolean {
         val currentPanel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
         val current = currentPanel.currentPath
@@ -177,7 +177,11 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             return true
         }
         
-        if (current == "/") { loadPanel(isLeft, homePath); return true }
+        // Kalau udah di "/", return false (biar MainActivity pindah tab ke Vault)
+        if (current == "/") { 
+            return false 
+        }
+        
         if (current == homePath) {
             val parent = File(current).parent
             if (parent != null) { loadPanel(isLeft, parent); return true }

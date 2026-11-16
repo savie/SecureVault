@@ -9,9 +9,9 @@ import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -23,8 +23,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.securevault.utils.RootUtils
+import com.securevault.ui.components.AppTopBar
 
-// Opsi Auto-Lock
 data class AutoLockOption(val label: String, val millis: Long)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,7 +37,6 @@ fun SettingsScreen(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE) }
     
-    // State Auto-Lock
     val autoLockOptions = listOf(
         AutoLockOption("Off", 0L),
         AutoLockOption("1 minute", 60_000L),
@@ -45,40 +44,40 @@ fun SettingsScreen(
         AutoLockOption("10 minutes", 600_000L)
     )
     var selectedAutoLockMillis by remember {
-        mutableStateOf(prefs.getLong("container_auto_lock_ms", 300_000L)) // Default 5 menit
+        mutableStateOf(prefs.getLong("container_auto_lock_ms", 300_000L))
     }
     var expanded by remember { mutableStateOf(false) }
     val selectedLabel = autoLockOptions.find { it.millis == selectedAutoLockMillis }?.label ?: "5 minutes"
 
-    val isRooted = remember { RootUtils.isRootAvailable() }
-    val hasAllFilesAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        Environment.isExternalStorageManager()
-    } else true
+    // Trigger buat refresh status
+    var refreshTrigger by remember { mutableStateOf(0) }
+
+    val isRooted = remember(refreshTrigger) { RootUtils.isRootAvailable() }
+    val hasAllFilesAccess = remember(refreshTrigger) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else true
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Settings", color = Color.White) },
-                navigationIcon = {
-                    IconButton(onClick = onLock) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+            // FIX: Tambah tombol Refresh
+            AppTopBar(
+                title = "Settings",
+                actions = {
+                    IconButton(onClick = { refreshTrigger++ }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Status", tint = Color.White)
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF121212))
+                }
             )
         },
         containerColor = Color(0xFF121212)
     ) { padding ->
         Column(modifier = Modifier.padding(padding).padding(16.dp)) {
-            
             Text("Security", style = MaterialTheme.typography.titleMedium, color = Color.Gray)
             Spacer(Modifier.height(8.dp))
 
-            // Fingerprint Toggle
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)), modifier = Modifier.fillMaxWidth()) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Fingerprint, contentDescription = "Fingerprint", tint = Color.White)
                     Spacer(Modifier.width(16.dp))
@@ -96,13 +95,9 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            // === AUTO-LOCK CONTAINER ===
             Text("Container Auto-Lock", style = MaterialTheme.typography.titleMedium, color = Color.Gray)
             Spacer(Modifier.height(8.dp))
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)), modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Timer, contentDescription = "Timer", tint = Color.White)
@@ -154,11 +149,7 @@ fun SettingsScreen(
             Text("Storage Access Status", style = MaterialTheme.typography.titleMedium, color = Color.Gray)
             Spacer(Modifier.height(8.dp))
 
-            // Status Root
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)), modifier = Modifier.fillMaxWidth()) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (isRooted) Icons.Default.CheckCircle else Icons.Default.Warning,
@@ -175,7 +166,6 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // Status All Files Access
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)), 
                 modifier = Modifier.fillMaxWidth().clickable {

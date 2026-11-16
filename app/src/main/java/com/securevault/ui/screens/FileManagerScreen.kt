@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.securevault.ui.viewmodel.*
 import com.securevault.utils.ConflictAction
+import com.securevault.ui.components.AppTopBar
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -39,7 +40,7 @@ fun FileManagerScreen(
     var selectedItem by remember { mutableStateOf<FileItem?>(null) }
     var selectedIsLeft by remember { mutableStateOf(true) }
     var showMenu by remember { mutableStateOf(false) }
-    
+
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPropertiesDialog by remember { mutableStateOf(false) }
@@ -47,9 +48,13 @@ fun FileManagerScreen(
     var renameInput by remember { mutableStateOf("") }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("File Manager", color = Color.White, fontWeight = FontWeight.Bold) },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF121212))
+        AppTopBar(
+            title = "File Manager",
+            actions = {
+                IconButton(onClick = { viewModel.refreshAllPanels() }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+                }
+            }
         )
 
         Row(modifier = Modifier.fillMaxSize().weight(1f)) {
@@ -87,7 +92,6 @@ fun FileManagerScreen(
         }
     }
 
-    // DIALOG KONFIRMASI PASTE
     if (state.pendingPaste != null) {
         val actionStr = if (state.pendingPaste!!.action == ClipboardAction.COPY) "Copy" else "Move"
         AlertDialog(
@@ -100,7 +104,6 @@ fun FileManagerScreen(
         )
     }
 
-    // DIALOG KONFLIK
     if (state.pendingConflict != null) {
         AlertDialog(
             onDismissRequest = { viewModel.clearConflict() },
@@ -124,7 +127,6 @@ fun FileManagerScreen(
         )
     }
 
-    // DIALOG TOOLS (Encrypt/Decrypt)
     if (showToolsDialog && selectedItem != null) {
         AlertDialog(
             onDismissRequest = { showToolsDialog = false },
@@ -158,7 +160,6 @@ fun FileManagerScreen(
         )
     }
 
-    // Bottom Sheet Menu
     if (showMenu && selectedItem != null) {
         ModalBottomSheet(
             onDismissRequest = { showMenu = false },
@@ -205,7 +206,6 @@ fun FileManagerScreen(
         }
     }
 
-    // Dialog Rename, Delete, Properties (Helper functions omitted for brevity, but they are here)
     if (showRenameDialog && selectedItem != null) {
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
@@ -260,7 +260,6 @@ fun FileManagerScreen(
     }
 }
 
-// --- HELPER FUNCTIONS ---
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MenuItem(title: String, icon: ImageVector, tint: Color, onClick: () -> Unit) {

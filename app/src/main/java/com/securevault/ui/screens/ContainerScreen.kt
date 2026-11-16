@@ -30,6 +30,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.securevault.data.local.ContainerItem
 import com.securevault.ui.viewmodel.ContainerViewModel
 import com.securevault.utils.KeystoreHelper
+import com.securevault.ui.components.AppTopBar
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
@@ -47,22 +48,19 @@ fun ContainerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    
-    // Dialog states
+
     var showCreateDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showPropertiesDialog by remember { mutableStateOf(false) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var showPasswordDialog by remember { mutableStateOf(false) }
-    
+
     var selectedContainer by remember { mutableStateOf<ContainerItem?>(null) }
     var passwordAction by remember { mutableStateOf<PasswordAction?>(null) }
-    
-    // Password in memory (buat unmount tanpa nanya password lagi)
+
     val mountedPasswords = remember { mutableStateMapOf<String, String>() }
-    
-    // Form fields
+
     var newName by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
@@ -73,7 +71,6 @@ fun ContainerScreen(
     var isPasswordVisible by remember { mutableStateOf(false) }
     var isConfirmVisible by remember { mutableStateOf(false) }
 
-    // Password Strength
     val isMinLength = newPassword.length >= 8
     val hasUpperCase = newPassword.any { it.isUpperCase() }
     val hasLowerCase = newPassword.any { it.isLowerCase() }
@@ -89,17 +86,20 @@ fun ContainerScreen(
         else { strengthColor = Color(0xFFF44336); strengthText = "Weak" }
     }
 
-    // Biometric prompt setup
     val activity = remember(context) { context.findFragmentActivity() }
     val canAuthenticate = BiometricManager.from(context)
         .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Containers", color = Color.White, fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF121212))
-            )
+            AppTopBar(
+            title = "Containers",
+            actions = {
+                IconButton(onClick = { viewModel.refreshContainers() }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+                }
+            }
+        )
         },
         floatingActionButton = {
             FloatingActionButton(
@@ -140,7 +140,7 @@ fun ContainerScreen(
         }
     }
 
-    // ============ BOTTOM SHEET MENU ============
+    // BOTTOM SHEET, DIALOG CREATE, RENAME, DELETE, PROPERTIES (SAMA PERSIS)
     if (showBottomSheet && selectedContainer != null) {
         val item = selectedContainer!!
         ModalBottomSheet(
@@ -190,7 +190,6 @@ fun ContainerScreen(
         }
     }
 
-    // ============ DIALOG PASSWORD (Mount/Unmount) ============
     if (showPasswordDialog && passwordAction != null) {
         val action = passwordAction!!
         val actionText = when (action) {
@@ -250,7 +249,6 @@ fun ContainerScreen(
         )
     }
 
-    // ============ DIALOG CREATE ============
     if (showCreateDialog) {
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
@@ -359,7 +357,6 @@ fun ContainerScreen(
         )
     }
 
-    // ============ DIALOG RENAME ============
     if (showRenameDialog && selectedContainer != null) {
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
@@ -392,7 +389,6 @@ fun ContainerScreen(
         )
     }
 
-    // ============ DIALOG DELETE ============
     if (showDeleteDialog && selectedContainer != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -411,7 +407,6 @@ fun ContainerScreen(
         )
     }
 
-    // ============ DIALOG PROPERTIES ============
     if (showPropertiesDialog && selectedContainer != null) {
         val item = selectedContainer!!
         val date = SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault()).format(Date(item.createdAt))
@@ -437,7 +432,6 @@ fun ContainerScreen(
     }
 }
 
-// ============ HELPER: Handle Unlock/Lock ============
 private fun handleUnlockLock(
     item: ContainerItem,
     isMounted: Boolean,
@@ -450,7 +444,6 @@ private fun handleUnlockLock(
     onNeedPassword: (PasswordAction) -> Unit
 ) {
     if (isMounted) {
-        // Lock: gunakan password dari memory, atau minta
         val cached = mountedPasswords[item.id]
         if (cached != null) {
             viewModel.unmountContainer(item, cached)
@@ -461,12 +454,10 @@ private fun handleUnlockLock(
             onNeedPassword(PasswordAction.Unmount(item))
         }
     } else {
-        // Unlock
         if (item.usesMasterPassword) {
             viewModel.mountContainer(item, masterPassword) { }
             return
         }
-        // Coba biometric dulu kalo enabled
         if (item.biometricEnabled && canAuthenticate && activity != null) {
             try {
                 val prompt = BiometricPrompt(
@@ -474,9 +465,6 @@ private fun handleUnlockLock(
                     object : BiometricPrompt.AuthenticationCallback() {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                             super.onAuthenticationSucceeded(result)
-                            // Decrypt password dari keystore
-                            val dbHelper = com.securevault.data.local.ContainerDbHelper(context)
-                            // Ambil encryptedPassword (perlu query)
                             val encrypted = com.securevault.utils.VaultImporterHelper.getEncryptedPassword(context, item.id)
                             if (encrypted != null) {
                                 val pwd = KeystoreHelper.decrypt(encrypted)
@@ -535,4 +523,3 @@ fun ContainerCard(item: ContainerItem, onClick: () -> Unit, onLongClick: () -> U
         }
     }
 }
-// formatSize TIDAK ditulis di sini karena udah ada di FileManagerScreen.kt
