@@ -31,7 +31,6 @@ import com.securevault.data.local.ContainerItem
 import com.securevault.ui.viewmodel.ContainerViewModel
 import com.securevault.utils.KeystoreHelper
 import com.securevault.ui.components.AppTopBar
-import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -93,54 +92,84 @@ fun ContainerScreen(
     Scaffold(
         topBar = {
             AppTopBar(
-            title = "Containers",
-            actions = {
-                IconButton(onClick = { viewModel.refreshContainers() }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+                title = "Containers",
+                actions = {
+                    IconButton(onClick = { viewModel.refreshContainers() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+                    }
                 }
-            }
-        )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    newName = ""; newPassword = ""; confirmPassword = ""
-                    useMasterPassword = false; enableBiometric = false
-                    isPasswordVisible = false; isConfirmVisible = false
-                    showCreateDialog = true
-                },
-                containerColor = Color.White,
-                contentColor = Color.Black
-            ) { Icon(Icons.Default.Add, contentDescription = "Add Container") }
+            )
         },
         containerColor = Color(0xFF121212)
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (uiState.isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Color.White)
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (uiState.isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Color.White)
 
-            uiState.message?.let {
-                Text(it, color = if (it.startsWith("✅")) Color.Green else Color.Red, modifier = Modifier.padding(16.dp))
-            }
-
-            if (uiState.containers.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No containers yet. Tap + to create.", color = Color.Gray)
-                }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(uiState.containers) { item ->
-                        ContainerCard(
-                            item = item,
-                            onClick = { selectedContainer = item; showBottomSheet = true },
-                            onLongClick = { selectedContainer = item; showBottomSheet = true }
-                        )
+                if (uiState.containers.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No containers yet. Tap + to create.", color = Color.Gray)
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(uiState.containers) { item ->
+                            ContainerCard(
+                                item = item,
+                                onClick = { selectedContainer = item; showBottomSheet = true },
+                                onLongClick = { selectedContainer = item; showBottomSheet = true }
+                            )
+                        }
                     }
                 }
+            }
+
+            // FIX: Row buat Message + FAB
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Message
+                if (uiState.message != null) {
+                    Card(
+                        modifier = Modifier.weight(1f).padding(end = 12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2C)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    ) {
+                        Text(
+                            text = uiState.message!!,
+                            color = when {
+                                uiState.message!!.startsWith("✅") -> Color.Green
+                                uiState.message!!.startsWith("❌") -> Color.Red
+                                uiState.message!!.startsWith("🔒") -> Color(0xFF03A9F4)
+                                else -> Color.LightGray
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+
+                // FAB
+                FloatingActionButton(
+                    onClick = {
+                        newName = ""; newPassword = ""; confirmPassword = ""
+                        useMasterPassword = false; enableBiometric = false
+                        isPasswordVisible = false; isConfirmVisible = false
+                        showCreateDialog = true
+                    },
+                    containerColor = Color.White,
+                    contentColor = Color.Black
+                ) { Icon(Icons.Default.Add, contentDescription = "Add Container") }
             }
         }
     }
 
-    // BOTTOM SHEET, DIALOG CREATE, RENAME, DELETE, PROPERTIES (SAMA PERSIS)
     if (showBottomSheet && selectedContainer != null) {
         val item = selectedContainer!!
         ModalBottomSheet(

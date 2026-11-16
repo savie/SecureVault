@@ -1,5 +1,6 @@
 package com.securevault.ui.screens
 
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -14,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -31,6 +34,7 @@ fun VaultScreen(
     viewModel: VaultViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     var selectedFile by remember { mutableStateOf<VaultItem?>(null) }
     var showMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -44,7 +48,6 @@ fun VaultScreen(
 
     Scaffold(
         topBar = {
-            // FIX: Hapus tombol Lock. Cuma Refresh.
             AppTopBar(
                 title = "Vault",
                 actions = {
@@ -54,49 +57,71 @@ fun VaultScreen(
                 }
             )
         },
+        // FIX: FAB dihapus dari Scaffold, pindah ke dalam Box
         containerColor = Color(0xFF121212)
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
-            if (uiState.isLoading) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Color.White)
-            }
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (uiState.isLoading) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Color.White)
+                }
 
-            uiState.message?.let {
-                Text(it, color = if (it.startsWith("✅")) Color.Green else Color.Red, modifier = Modifier.padding(vertical = 8.dp))
-            }
-
-            Button(
-                onClick = { filePickerLauncher.launch("*/*") },
-                enabled = !uiState.isLoading,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add")
-                Spacer(Modifier.width(8.dp))
-                Text("Add File to Vault", fontWeight = FontWeight.Bold)
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            if (uiState.files.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(64.dp))
-                        Spacer(Modifier.height(16.dp))
-                        Text("Vault is empty", color = Color.Gray, style = MaterialTheme.typography.titleMedium)
-                        Text("Tap + to add files securely", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                if (uiState.files.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No files yet. Tap + to add.", color = Color.Gray)
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(uiState.files) { file ->
+                            VaultItemCard(
+                                file = file,
+                                onClick = {
+                                    Toast.makeText(context, "File viewer coming soon", Toast.LENGTH_SHORT).show()
+                                },
+                                onLongClick = { selectedFile = file; showMenu = true }
+                            )
+                        }
                     }
                 }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(uiState.files) { file ->
-                        VaultItemCard(
-                            file = file, 
-                            isEnabled = !uiState.isLoading,
-                            onClick = { selectedFile = file; showMenu = true }
+            }
+
+            // FIX: Row buat Message + FAB
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Message (kiri) - ambil sisa space
+                if (uiState.message != null) {
+                    Card(
+                        modifier = Modifier.weight(1f).padding(end = 12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2C)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    ) {
+                        Text(
+                            text = uiState.message!!,
+                            color = when {
+                                uiState.message!!.startsWith("✅") -> Color.Green
+                                uiState.message!!.startsWith("❌") -> Color.Red
+                                else -> Color.LightGray
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                         )
                     }
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
                 }
+
+                // FAB (kanan)
+                FloatingActionButton(
+                    onClick = { filePickerLauncher.launch("*/*") },
+                    containerColor = Color.White,
+                    contentColor = Color.Black
+                ) { Icon(Icons.Default.Add, contentDescription = "Add File to Vault") }
             }
         }
     }
@@ -107,7 +132,7 @@ fun VaultScreen(
             containerColor = Color(0xFF1E1E1E)
         ) {
             Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-                Text(selectedFile!!.originalName, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(selectedFile!!.originalName, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(selectedFile!!.originalPath, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(16.dp))
 
@@ -181,17 +206,53 @@ fun VaultScreen(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun VaultItemCard(file: VaultItem, isEnabled: Boolean, onClick: () -> Unit) {
+fun VaultItemCard(file: VaultItem, onClick: () -> Unit, onLongClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .combinedClickable(enabled = isEnabled, onClick = onClick),
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(file.originalName, color = Color.White, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            Text("Tap for options • ${formatSize(file.fileSize)}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = getVaultFileIcon(file.mimeType),
+                contentDescription = null,
+                tint = getVaultIconColor(file.mimeType)
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(file.originalName, color = Color.White, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "${formatSize(file.fileSize)} • Encrypted",
+                    color = Color.Gray, style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
+    }
+}
+
+private fun getVaultFileIcon(mimeType: String): ImageVector {
+    return when {
+        mimeType.startsWith("image/") -> Icons.Default.Image
+        mimeType.startsWith("video/") -> Icons.Default.Movie
+        mimeType.startsWith("audio/") -> Icons.Default.Audiotrack
+        mimeType == "application/pdf" -> Icons.Default.PictureAsPdf
+        mimeType.contains("zip") || mimeType.contains("rar") || mimeType.contains("7z") -> Icons.Default.Archive
+        mimeType.startsWith("text/") -> Icons.Default.Description
+        mimeType.contains("apk") -> Icons.Default.Android
+        else -> Icons.Default.InsertDriveFile
+    }
+}
+
+private fun getVaultIconColor(mimeType: String): Color {
+    return when {
+        mimeType.startsWith("image/") -> Color(0xFF4CAF50)
+        mimeType.startsWith("video/") -> Color(0xFF9C27B0)
+        mimeType.startsWith("audio/") -> Color(0xFFE91E63)
+        mimeType == "application/pdf" -> Color(0xFFF44336)
+        mimeType.contains("zip") || mimeType.contains("rar") -> Color(0xFFFF9800)
+        mimeType.contains("apk") -> Color(0xFF2196F3)
+        else -> Color.LightGray
     }
 }
