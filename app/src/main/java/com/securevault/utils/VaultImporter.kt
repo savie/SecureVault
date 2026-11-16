@@ -26,6 +26,8 @@ object VaultImporter {
 
         val originalSize = sourceFile.length()
         if (originalSize == 0L) return@withContext false
+        
+        val originalTimestamp = sourceFile.lastModified()
 
         try {
             val salt = CryptoManager.generateSalt()
@@ -42,7 +44,7 @@ object VaultImporter {
                 }
             }
 
-            VaultDbHelper(context).insertFile(uuid, originalName, mimeType, originalSize, filePath)
+            VaultDbHelper(context).insertFile(uuid, originalName, mimeType, originalSize, filePath, originalTimestamp)
             if (!sourceFile.delete()) RootUtils.deleteFileAsRoot(filePath)
             true
         } catch (e: Exception) {
@@ -92,6 +94,9 @@ object VaultImporter {
             tempFile.delete()
 
             if (saved != null) {
+                if (vaultItem != null) {
+                    StorageHelper.setFileTimestamp(context, destFile.absolutePath, vaultItem.originalTimestamp)
+                }
                 sourceFile.delete()
                 if (svltFilePath.contains("/vault/")) dbHelper.deleteFile(uuid)
                 true

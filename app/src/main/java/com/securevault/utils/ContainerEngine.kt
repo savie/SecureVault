@@ -16,16 +16,13 @@ object ContainerEngine {
     private const val SALT_LENGTH = 16
     private const val HEADER_SIZE = 4 + SALT_LENGTH // 20 bytes
 
-    // === PACK: Folder -> Temp ZIP -> Encrypt -> .svct (Double-pass, memory ~1MB) ===
     suspend fun packFolder(sourceFolder: File, destContainer: File, password: String): Boolean = withContext(Dispatchers.IO) {
         var tempZip: File? = null
         try {
-            // Pass 1: ZIP folder ke temp file (streaming, no OOM)
             tempZip = File(destContainer.parentFile ?: sourceFolder, "temp_pack_${System.currentTimeMillis()}.zip")
             if (tempZip.parentFile?.exists() == false) tempZip.parentFile?.mkdirs()
             zipFolder(sourceFolder, tempZip)
 
-            // Pass 2: Encrypt temp ZIP ke .svct (streaming chunk-based)
             val salt = CryptoManager.generateSalt()
             val key = CryptoManager.deriveKey(password.toCharArray(), salt)
 
@@ -47,32 +44,22 @@ object ContainerEngine {
         }
     }
 
-    // === UNPACK: .svct -> Decrypt -> Temp ZIP -> Extract (Double-pass, memory ~1MB) ===
     suspend fun unpackContainer(sourceContainer: File, destFolder: File, password: String): Boolean = withContext(Dispatchers.IO) {
         var tempZip: File? = null
         try {
             if (!sourceContainer.exists()) return@withContext false
 
-            // Read header: MAGIC (4B) + SALT (16B) = 20B
             val header = ByteArray(HEADER_SIZE)
             FileInputStream(sourceContainer).use { fis ->
                 if (fis.read(header) != HEADER_SIZE) return@withContext false
             }
 
             val magic = header.copyOfRange(0, 4)
-            if (!magic.contentEquals(MAGIC)) {
-                // Cek apakah ini v1 (SVC1) - kalau iya, beri tanda khusus
-                if (magic.contentEquals("SVC1".toByteArray(Charsets.UTF_8))) {
-                    // File v1 tidak kompatibel dengan engine v2. User harus bikin ulang.
-                    return@withContext false
-                }
-                return@withContext false
-            }
+            if (!magic.contentEquals(MAGIC)) return@withContext false
 
             val salt = header.copyOfRange(4, 4 + SALT_LENGTH)
             val key = CryptoManager.deriveKey(password.toCharArray(), salt)
 
-            // Pass 1: Decrypt .svct ke temp ZIP (streaming chunk-based)
             tempZip = File(destFolder.parentFile ?: destFolder, "temp_unpack_${System.currentTimeMillis()}.zip")
             if (tempZip.parentFile?.exists() == false) tempZip.parentFile?.mkdirs()
 
@@ -88,7 +75,6 @@ object ContainerEngine {
                 return@withContext false
             }
 
-            // Pass 2: Extract temp ZIP ke folder (streaming)
             if (!destFolder.exists()) destFolder.mkdirs()
             unzipFolder(tempZip, destFolder)
 
@@ -102,14 +88,30 @@ object ContainerEngine {
         }
     }
 
-    // === HELPER: ZIP Folder (streaming, buffer 64KB) ===
     private fun zipFolder(folder: File, zipFile: File) {
         ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
             val buffer = ByteArray(64 * 1024)
             folder.walkTopDown().filter { it.isFile }.forEach { file ->
                 val entryName = file.relativeTo(folder).path
-                zos.putNextEntry(ZipEntry(entryName))
-                FileInputStream(file).use { input ->
+                val entry = ZipEntry(entryName)
+                entry.time = file.lastModified() // Preserve timestamp
+
+                zos.putNextEntry(entry)
+
+                // FIX: Coba FileInputStream biasa. Kalau gagal (permission/owner root), fallback ke su cat
+                var inputStream: InputStream? = null
+                try {
+                    inputStream = FileInputStream(file)
+                } catch (e: Exception) {
+                    if (RootUtils.isRootAvailable()) {
+                        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat \"${file.absolutePath}\""))
+                        inputStream = process.inputStream
+                    } else {
+                        throw e
+                    }
+                }
+
+                inputStream?.use { input ->
                     var read: Int
                     while (input.read(buffer).also { read = it } != -1) {
                         zos.write(buffer, 0, read)
@@ -120,13 +122,11 @@ object ContainerEngine {
         }
     }
 
-    // === HELPER: UNZIP (streaming, buffer 64KB) ===
     private fun unzipFolder(zipFile: File, destFolder: File) {
         ZipInputStream(FileInputStream(zipFile)).use { zis ->
             var entry: ZipEntry? = zis.nextEntry
             while (entry != null) {
                 val outFile = File(destFolder, entry.name)
-                // Zip Slip protection
                 if (!outFile.canonicalPath.startsWith(destFolder.canonicalPath + File.separator)) {
                     throw SecurityException("Zip entry outside target dir: ${entry.name}")
                 }
@@ -138,6 +138,7 @@ object ContainerEngine {
                         zis.copyTo(fos, 64 * 1024)
                     }
                 }
+                outFile.setLastModified(entry.time) // Restore timestamp
                 zis.closeEntry()
                 entry = zis.nextEntry
             }

@@ -5,6 +5,7 @@ data class VaultItem(
     val originalName: String,
     val mimeType: String,
     val fileSize: Long,
-    val timestamp: Long,
-    val originalPath: String // Path lengkap (misal: /storage/emulated/0/DCIM/Camera/foto.jpg)
+    val timestamp: Long, // Waktu file masuk ke Vault (encrypt time)
+    val originalPath: String,
+    val originalTimestamp: Long // Waktu file asli terakhir dimodifikasi (lastModified)
 )

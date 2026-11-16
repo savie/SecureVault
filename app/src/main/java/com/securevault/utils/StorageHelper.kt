@@ -2,6 +2,7 @@ package com.securevault.utils
 
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -10,7 +11,6 @@ import java.io.FileInputStream
 
 object StorageHelper {
 
-    // Existing (untuk file kecil, backward compat)
     fun saveFile(context: Context, originalName: String, mimeType: String, absolutePath: String, data: ByteArray): String? {
         if (RootUtils.isRootAvailable()) {
             val tempFile = File(context.cacheDir, "temp_restore")
@@ -32,15 +32,12 @@ object StorageHelper {
         return saveViaMediaStore(context, originalName, mimeType, data)
     }
 
-    // NEW: Streaming from temp file (untuk file besar, anti-OOM)
     fun saveFileFromTemp(context: Context, originalName: String, mimeType: String, absolutePath: String, tempFile: File): String? {
-        // Tier 1: Root copy (streaming via 'cp')
         if (RootUtils.isRootAvailable()) {
             val success = RootUtils.copyFileAsRoot(tempFile, absolutePath)
             if (success) return absolutePath
         }
 
-        // Tier 2: All Files Access (direct copy, streaming via File.copyTo)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
             try {
                 val destFile = File(absolutePath)
@@ -50,8 +47,27 @@ object StorageHelper {
             } catch (e: Exception) { }
         }
 
-        // Tier 3: MediaStore (streaming via input/output streams)
         return saveViaMediaStoreFromFile(context, originalName, mimeType, tempFile)
+    }
+
+    // NEW: Set timestamp after file saved
+    fun setFileTimestamp(context: Context, absolutePath: String, originalTimestamp: Long) {
+        try {
+            val file = File(absolutePath)
+            if (file.exists()) {
+                // Metode 1: File.setLastModified (works for most cases)
+                val success = file.setLastModified(originalTimestamp)
+                
+                // Metode 2: Root fallback (kalau file di /data atau butuh root)
+                if (!success && RootUtils.isRootAvailable()) {
+                    val timestampSeconds = originalTimestamp / 1000
+                    val cmd = "touch -t $(date -d @$timestampSeconds +%Y%m%d%H%M.%S) \"$absolutePath\""
+                    Runtime.getRuntime().exec(arrayOf("su", "-c", cmd)).waitFor()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun saveViaMediaStore(context: Context, originalName: String, mimeType: String, data: ByteArray): String? {
@@ -93,7 +109,7 @@ object StorageHelper {
         }
     }
 
-    private fun getCollectionForMime(mimeType: String): android.net.Uri {
+    private fun getCollectionForMime(mimeType: String): Uri {
         return if (mimeType.startsWith("image/")) MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         else if (mimeType.startsWith("video/")) MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         else MediaStore.Downloads.EXTERNAL_CONTENT_URI

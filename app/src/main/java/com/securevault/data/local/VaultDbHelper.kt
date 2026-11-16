@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.db", null, 2) {
+class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.db", null, 4) {
 
     override fun onCreate(db: SQLiteDatabase) {
         val createTable = """
@@ -15,18 +15,21 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
                 mimeType TEXT,
                 fileSize INTEGER,
                 timestamp INTEGER,
-                originalPath TEXT
+                originalPath TEXT,
+                originalTimestamp INTEGER
             )
         """.trimIndent()
         db.execSQL(createTable)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS vault_files")
-        onCreate(db)
+        if (oldVersion < 4) {
+            // Tambah kolom originalTimestamp (nilai default 0 buat data lama)
+            db.execSQL("ALTER TABLE vault_files ADD COLUMN originalTimestamp INTEGER DEFAULT 0")
+        }
     }
 
-    fun insertFile(uuid: String, name: String, mime: String, size: Long, path: String) {
+    fun insertFile(uuid: String, name: String, mime: String, size: Long, path: String, originalTimestamp: Long) {
         val db = writableDatabase
         val values = ContentValues().apply {
             put("uuid", uuid)
@@ -35,6 +38,7 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
             put("fileSize", size)
             put("timestamp", System.currentTimeMillis())
             put("originalPath", path)
+            put("originalTimestamp", originalTimestamp)
         }
         db.insert("vault_files", null, values)
         db.close()
@@ -48,7 +52,7 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
             do {
                 list.add(VaultItem(
                     cursor.getString(0), cursor.getString(1), cursor.getString(2),
-                    cursor.getLong(3), cursor.getLong(4), cursor.getString(5)
+                    cursor.getLong(3), cursor.getLong(4), cursor.getString(5), cursor.getLong(6)
                 ))
             } while (cursor.moveToNext())
         }
@@ -57,7 +61,6 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
         return list
     }
 
-    // FUNGSI BARU: Buat Decrypt dari File Manager
     fun getFileByUuid(uuid: String): VaultItem? {
         val db = readableDatabase
         val cursor = db.rawQuery("SELECT * FROM vault_files WHERE uuid = ?", arrayOf(uuid))
@@ -65,7 +68,7 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
         if (cursor.moveToFirst()) {
             item = VaultItem(
                 cursor.getString(0), cursor.getString(1), cursor.getString(2),
-                cursor.getLong(3), cursor.getLong(4), cursor.getString(5)
+                cursor.getLong(3), cursor.getLong(4), cursor.getString(5), cursor.getLong(6)
             )
         }
         cursor.close()

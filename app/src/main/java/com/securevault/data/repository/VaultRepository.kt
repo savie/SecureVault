@@ -33,13 +33,14 @@ class VaultRepository(private val context: Context) {
         val salt = CryptoManager.generateSalt()
         val key = CryptoManager.deriveKey(masterPassword.toCharArray(), salt)
 
+        // Simpan timestamp asli sebelum file di-delete/overwrite
+        val originalTimestamp = File(absolutePath).lastModified()
+
         var totalSize = 0L
         FileOutputStream(destFile).use { output ->
-            // Header v2: MAGIC "SVLT" + SALT (no IV, karena IV per chunk)
             output.write("SVLT".toByteArray(Charsets.UTF_8))
             output.write(salt)
 
-            // Chunk-based encrypt (anti-Conscrypt-bug)
             val countingInput = CountingInputStream(inputStream) { totalSize = it }
             CryptoManager.encryptStream(key, countingInput, output)
         }
@@ -50,7 +51,7 @@ class VaultRepository(private val context: Context) {
             throw Exception("File is empty")
         }
 
-        dbHelper.insertFile(uuid, originalName, mimeType, totalSize, absolutePath)
+        dbHelper.insertFile(uuid, originalName, mimeType, totalSize, absolutePath, originalTimestamp)
 
         var isDeleted = false
         try { if (context.contentResolver.delete(sourceUri, null, null) > 0) isDeleted = true } catch (e: Exception) {}
@@ -66,19 +67,18 @@ class VaultRepository(private val context: Context) {
 
         val tempFile = File(context.cacheDir, "restore_${System.currentTimeMillis()}.tmp")
 
-        // Read header: MAGIC "SVLT" (4B) + SALT (16B)
         val header = ByteArray(20)
         FileInputStream(vaultFile).use { input ->
             if (input.read(header) != 20) throw Exception("Corrupt vault file")
         }
         val magic = String(header.copyOfRange(0, 4), Charsets.UTF_8)
-        if (magic != "SVLT") throw Exception("Invalid vault file (v1 file not supported by this version)")
+        if (magic != "SVLT") throw Exception("Invalid vault file (v1 not supported)")
 
         val salt = header.copyOfRange(4, 20)
         val key = CryptoManager.deriveKey(masterPassword.toCharArray(), salt)
 
         val success = FileInputStream(vaultFile).use { input ->
-            input.skip(20) // Skip header
+            input.skip(20)
             FileOutputStream(tempFile).use { output ->
                 CryptoManager.decryptStream(key, input, output)
             }
@@ -96,6 +96,9 @@ class VaultRepository(private val context: Context) {
             throw Exception("Failed to restore. Access denied.")
         }
 
+        // Set timestamp asli setelah file selesai ditulis
+        StorageHelper.setFileTimestamp(context, item.originalPath, item.originalTimestamp)
+        
         tempFile.delete()
         vaultFile.delete()
         dbHelper.deleteFile(item.uuid)
@@ -110,7 +113,6 @@ class VaultRepository(private val context: Context) {
         dbHelper.deleteFile(item.uuid)
     }
 
-    // Helper: count total bytes read
     private class CountingInputStream(
         private val delegate: java.io.InputStream,
         private val onRead: (Long) -> Unit
