@@ -8,6 +8,7 @@ import com.securevault.utils.ConflictAction
 import com.securevault.utils.FileOperationHelper
 import com.securevault.utils.FileResult
 import com.securevault.utils.RootUtils
+import com.securevault.fs.FileAccessManager
 import com.securevault.utils.VaultImporter
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
@@ -79,7 +80,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun isVirtualContainer(item: FileItem): Boolean {
-        return File(item.path).parentFile?.name == "containers_temp"
+        val provider = FileAccessManager.getProvider()
+        val parent = provider.parent(item.path) ?: return false
+        return provider.name(parent) == "containers_temp"
     }
 
     fun refreshAllPanels() {
@@ -96,14 +99,13 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
             val items = withContext(Dispatchers.IO) {
                 val list = mutableListOf<FileItem>()
-                val dir = File(cleanPath)
+                val provider = FileAccessManager.getProvider()
                 val appFilesDir = getApplication<Application>().filesDir.absolutePath
                 val containersTempRoot = "$appFilesDir/containers_temp"
 
                 if (cleanPath.startsWith("$containersTempRoot/") || cleanPath == containersTempRoot) {
-                    val files = dir.listFiles()
-                    if (files != null) {
-                        files.forEach { list.add(FileItem(it.name, it.absolutePath, it.isDirectory, it.length())) }
+                    provider.list(cleanPath).forEach {
+                        list.add(FileItem(it.name, it.path, it.isDirectory, it.size))
                     }
                     return@withContext list
                 }
@@ -113,9 +115,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                         val db = ContainerDbHelper(getApplication())
                         val mounted = db.getAllContainers().filter { it.isMounted }
                         mounted.forEach { c ->
-                            val tempPath = File(containersTempRoot, c.id)
-                            if (tempPath.exists()) {
-                                list.add(FileItem("📦 ${c.name}", tempPath.absolutePath, true, c.size))
+                            val tempPath = "$containersTempRoot/${c.id}"
+                            if (provider.exists(tempPath)) {
+                                list.add(FileItem("📦 ${c.name}", tempPath, true, c.size))
                             }
                         }
                     } catch (e: Exception) { /* ignore */ }
@@ -146,9 +148,8 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 }
 
                 if (list.isEmpty()) {
-                    val files = dir.listFiles()
-                    if (files != null) {
-                        files.forEach { list.add(FileItem(it.name, it.absolutePath, it.isDirectory, it.length())) }
+                    provider.list(cleanPath).forEach {
+                        list.add(FileItem(it.name, it.path, it.isDirectory, it.size))
                     }
                 }
 
