@@ -21,13 +21,21 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build Debug APK
-        # Tambahan '-Pandroid.aapt2FromMavenOverride=' untuk MENIMPA/MENGOSONGKAN baris AAPT2 dari gradle.properties
+      - name: Build Debug APK (Free + Pro)
+        # Tambahan '-Pandroid.aapt2FromMavenOverride=' untuk MENIMPA/MENGOSONGKAN
+        # baris AAPT2 dari gradle.properties
         run: ./gradlew assembleDebug --no-daemon --stacktrace -Pandroid.aapt2FromMavenOverride=
 
-      - name: Upload APK Artifact
+      - name: Upload Free APK
         uses: actions/upload-artifact@v4
         with:
-          name: SecureVault-APK
-          path: app/build/outputs/apk/debug/*.apk
+          name: SecureVault-free-debug
+          path: app/build/outputs/apk/free/debug/*.apk
+          retention-days: 30
+
+      - name: Upload Pro APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SecureVault-pro-debug
+          path: app/build/outputs/apk/pro/debug/*.apk
           retention-days: 30
