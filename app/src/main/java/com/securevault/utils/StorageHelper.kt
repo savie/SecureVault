@@ -6,16 +6,17 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import com.securevault.fs.FileAccessManager
 import java.io.File
 import java.io.FileInputStream
 
 object StorageHelper {
 
     fun saveFile(context: Context, originalName: String, mimeType: String, absolutePath: String, data: ByteArray): String? {
-        if (RootUtils.isRootAvailable()) {
+        if (FileAccessManager.rootOperations.isAvailable()) {
             val tempFile = File(context.cacheDir, "temp_restore")
             tempFile.writeBytes(data)
-            val success = RootUtils.copyFileAsRoot(tempFile, absolutePath)
+            val success = FileAccessManager.rootOperations.copyAsRoot(tempFile.absolutePath, absolutePath)
             tempFile.delete()
             if (success) return absolutePath
         }
@@ -33,8 +34,8 @@ object StorageHelper {
     }
 
     fun saveFileFromTemp(context: Context, originalName: String, mimeType: String, absolutePath: String, tempFile: File): String? {
-        if (RootUtils.isRootAvailable()) {
-            val success = RootUtils.copyFileAsRoot(tempFile, absolutePath)
+        if (FileAccessManager.rootOperations.isAvailable()) {
+            val success = FileAccessManager.rootOperations.copyAsRoot(tempFile.absolutePath, absolutePath)
             if (success) return absolutePath
         }
 
@@ -50,19 +51,15 @@ object StorageHelper {
         return saveViaMediaStoreFromFile(context, originalName, mimeType, tempFile)
     }
 
-    // NEW: Set timestamp after file saved
     fun setFileTimestamp(context: Context, absolutePath: String, originalTimestamp: Long) {
         try {
             val file = File(absolutePath)
             if (file.exists()) {
-                // Metode 1: File.setLastModified (works for most cases)
                 val success = file.setLastModified(originalTimestamp)
-                
-                // Metode 2: Root fallback (kalau file di /data atau butuh root)
-                if (!success && RootUtils.isRootAvailable()) {
+                if (!success && FileAccessManager.rootOperations.isAvailable()) {
                     val timestampSeconds = originalTimestamp / 1000
                     val cmd = "touch -t $(date -d @$timestampSeconds +%Y%m%d%H%M.%S) \"$absolutePath\""
-                    Runtime.getRuntime().exec(arrayOf("su", "-c", cmd)).waitFor()
+                    FileAccessManager.rootOperations.execAsRoot(cmd)
                 }
             }
         } catch (e: Exception) {
@@ -84,7 +81,6 @@ object StorageHelper {
         val values = buildContentValues(originalName, mimeType, folder)
         val collection = getCollectionForMime(mimeType)
         val uri = context.contentResolver.insert(collection, values) ?: return null
-
         context.contentResolver.openOutputStream(uri)?.use { output ->
             FileInputStream(tempFile).use { input ->
                 input.copyTo(output)

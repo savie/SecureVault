@@ -10,6 +10,7 @@ import java.io.InputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import com.securevault.fs.FileAccessManager
 
 object ContainerEngine {
     private val MAGIC = "SVC2".toByteArray(Charsets.UTF_8)
@@ -103,8 +104,8 @@ object ContainerEngine {
                 try {
                     inputStream = FileInputStream(file)
                 } catch (e: Exception) {
-                    if (RootUtils.isRootAvailable()) {
-                        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat \"${file.absolutePath}\""))
+                    if (FileAccessManager.rootOperations.isAvailable()) {
+                        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat \"" + file.absolutePath + "\""))
                         inputStream = process.inputStream
                     } else {
                         throw e

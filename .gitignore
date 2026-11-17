@@ -24,3 +24,4 @@ local.properties
 .tmp_*
 kondisi_aktual.txt
 struktur.txt
+*.bak

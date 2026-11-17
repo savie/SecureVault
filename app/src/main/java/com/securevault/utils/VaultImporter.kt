@@ -9,6 +9,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.UUID
+import com.securevault.fs.FileAccessManager
 
 object VaultImporter {
     suspend fun encryptFile(context: Context, filePath: String, masterPassword: String): Boolean = withContext(Dispatchers.IO) {
@@ -45,7 +46,7 @@ object VaultImporter {
             }
 
             VaultDbHelper(context).insertFile(uuid, originalName, mimeType, originalSize, filePath, originalTimestamp)
-            if (!sourceFile.delete()) RootUtils.deleteFileAsRoot(filePath)
+            if (!sourceFile.delete()) FileAccessManager.rootOperations.deleteAsRoot(filePath)
             true
         } catch (e: Exception) {
             e.printStackTrace()

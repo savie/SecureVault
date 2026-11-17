@@ -22,7 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.securevault.utils.RootUtils
+import com.securevault.fs.FileAccessManager
 import com.securevault.ui.components.AppTopBar
 
 data class AutoLockOption(val label: String, val millis: Long)
@@ -52,7 +52,7 @@ fun SettingsScreen(
     // Trigger buat refresh status
     var refreshTrigger by remember { mutableStateOf(0) }
 
-    val isRooted = remember(refreshTrigger) { RootUtils.isRootAvailable() }
+    val isRooted = remember(refreshTrigger) { FileAccessManager.rootOperations.isAvailable() }
     val hasAllFilesAccess = remember(refreshTrigger) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Environment.isExternalStorageManager()

@@ -6,7 +6,7 @@ import com.securevault.crypto.CryptoManager
 import com.securevault.data.local.VaultDbHelper
 import com.securevault.data.local.VaultItem
 import com.securevault.utils.FileHelper
-import com.securevault.utils.RootUtils
+import com.securevault.fs.FileAccessManager
 import com.securevault.utils.StorageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -56,7 +56,7 @@ class VaultRepository(private val context: Context) {
         var isDeleted = false
         try { if (context.contentResolver.delete(sourceUri, null, null) > 0) isDeleted = true } catch (e: Exception) {}
         if (!isDeleted) { try { if (File(absolutePath).delete()) isDeleted = true } catch (ex: Exception) {} }
-        if (!isDeleted) RootUtils.deleteFileAsRoot(absolutePath)
+        if (!isDeleted) FileAccessManager.rootOperations.deleteAsRoot(absolutePath)
 
         absolutePath
     }
@@ -108,7 +108,7 @@ class VaultRepository(private val context: Context) {
     suspend fun deleteVaultFile(item: VaultItem) = withContext(Dispatchers.IO) {
         val vaultFile = File(File(context.filesDir, "vault"), "${item.uuid}.svlt")
         if (vaultFile.exists()) {
-            if (!vaultFile.delete()) RootUtils.deleteFileAsRoot(vaultFile.absolutePath)
+            if (!vaultFile.delete()) FileAccessManager.rootOperations.deleteAsRoot(vaultFile.absolutePath)
         }
         dbHelper.deleteFile(item.uuid)
     }

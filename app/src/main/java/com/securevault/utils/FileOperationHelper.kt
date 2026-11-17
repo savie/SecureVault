@@ -1,5 +1,6 @@
 package com.securevault.utils
 
+import com.securevault.fs.FileAccessManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -16,13 +17,15 @@ object FileOperationHelper {
 
     suspend fun copy(source: File, destinationDir: File, conflictAction: ConflictAction? = null): FileResult = withContext(Dispatchers.IO) {
         var destFile = File(destinationDir, source.name)
-        
         if (destFile.exists() && conflictAction == null) return@withContext FileResult.Conflict
 
         if (destFile.exists()) {
             when (conflictAction) {
                 ConflictAction.SKIP -> return@withContext FileResult.Success
-                ConflictAction.REPLACE -> destFile.deleteRecursively()
+                ConflictAction.REPLACE -> {
+                    if (source.absolutePath == destFile.absolutePath) return@withContext FileResult.Success
+                    destFile.deleteRecursively()
+                }
                 ConflictAction.KEEP_BOTH -> {
                     val ext = source.name.substringAfterLast(".", "")
                     val baseName = source.name.substringBeforeLast(".")
@@ -38,14 +41,10 @@ object FileOperationHelper {
         }
 
         try {
-            // Coba Root dulu buat preserve timestamp (cp -a)
-            if (RootUtils.isRootAvailable()) {
+            if (FileAccessManager.rootOperations.isAvailable()) {
                 val cmd = "cp -a \"${source.absolutePath}\" \"${destFile.absolutePath}\""
-                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
-                if (process.waitFor() == 0) return@withContext FileResult.Success
+                if (FileAccessManager.rootOperations.execAsRoot(cmd)) return@withContext FileResult.Success
             }
-
-            // Fallback Non-Root: Copy manual + set timestamp
             copyWithTimestamp(source, destFile)
             return@withContext FileResult.Success
         } catch (e: Exception) {
@@ -55,13 +54,15 @@ object FileOperationHelper {
 
     suspend fun move(source: File, destinationDir: File, conflictAction: ConflictAction? = null): FileResult = withContext(Dispatchers.IO) {
         var destFile = File(destinationDir, source.name)
-        
         if (destFile.exists() && conflictAction == null) return@withContext FileResult.Conflict
 
         if (destFile.exists()) {
             when (conflictAction) {
                 ConflictAction.SKIP -> return@withContext FileResult.Success
-                ConflictAction.REPLACE -> destFile.deleteRecursively()
+                ConflictAction.REPLACE -> {
+                    if (source.absolutePath == destFile.absolutePath) return@withContext FileResult.Success
+                    destFile.deleteRecursively()
+                }
                 ConflictAction.KEEP_BOTH -> {
                     val ext = source.name.substringAfterLast(".", "")
                     val baseName = source.name.substringBeforeLast(".")
@@ -77,22 +78,14 @@ object FileOperationHelper {
         }
 
         try {
-            // Coba renameTo dulu (biasanya instant & preserve timestamp)
             if (source.renameTo(destFile)) return@withContext FileResult.Success
-
-            // Kalau gagal (beda partisi), pake Root move (mv -a)
-            if (RootUtils.isRootAvailable()) {
+            if (FileAccessManager.rootOperations.isAvailable()) {
                 val cmd = "mv \"${source.absolutePath}\" \"${destFile.absolutePath}\""
-                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
-                if (process.waitFor() == 0) return@withContext FileResult.Success
+                if (FileAccessManager.rootOperations.execAsRoot(cmd)) return@withContext FileResult.Success
             }
-
-            // Fallback: copy + delete
             copyWithTimestamp(source, destFile)
             if (source.deleteRecursively()) return@withContext FileResult.Success
-        } catch (e: Exception) {
-            // ignore
-        }
+        } catch (e: Exception) {}
         return@withContext FileResult.Failure
     }
 
@@ -100,9 +93,8 @@ object FileOperationHelper {
         try {
             if (file.deleteRecursively()) return@withContext true
         } catch (e: Exception) {
-            if (RootUtils.isRootAvailable()) {
-                val cmd = "rm -rf \"${file.absolutePath}\""
-                return@withContext executeRootCommand(cmd)
+            if (FileAccessManager.rootOperations.isAvailable()) {
+                return@withContext FileAccessManager.rootOperations.execAsRoot("rm -rf \"${file.absolutePath}\"")
             }
         }
         return@withContext false
@@ -113,15 +105,13 @@ object FileOperationHelper {
         try {
             if (file.renameTo(newFile)) return@withContext true
         } catch (e: Exception) {
-            if (RootUtils.isRootAvailable()) {
-                val cmd = "mv \"${file.absolutePath}\" \"${newFile.absolutePath}\""
-                return@withContext executeRootCommand(cmd)
+            if (FileAccessManager.rootOperations.isAvailable()) {
+                return@withContext FileAccessManager.rootOperations.execAsRoot("mv \"${file.absolutePath}\" \"${newFile.absolutePath}\"")
             }
         }
         return@withContext false
     }
 
-    // Helper: Copy recursive + preserve timestamp (Non-Root)
     private fun copyWithTimestamp(source: File, dest: File) {
         if (source.isDirectory) {
             if (!dest.exists()) dest.mkdirs()
@@ -132,15 +122,6 @@ object FileOperationHelper {
         } else {
             source.copyTo(dest, overwrite = true)
             dest.setLastModified(source.lastModified())
-        }
-    }
-
-    private fun executeRootCommand(command: String): Boolean {
-        return try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
-            process.waitFor() == 0
-        } catch (e: Exception) {
-            false
         }
     }
 }

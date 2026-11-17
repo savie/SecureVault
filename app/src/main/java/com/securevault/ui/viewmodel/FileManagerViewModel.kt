@@ -7,7 +7,6 @@ import com.securevault.data.local.ContainerDbHelper
 import com.securevault.utils.ConflictAction
 import com.securevault.utils.FileOperationHelper
 import com.securevault.utils.FileResult
-import com.securevault.utils.RootUtils
 import com.securevault.fs.FileAccessManager
 import com.securevault.utils.VaultImporter
 import com.topjohnwu.superuser.Shell
@@ -64,7 +63,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     private val _state = MutableStateFlow(FileManagerState())
     val state: StateFlow<FileManagerState> = _state.asStateFlow()
 
-    private val isRootAvailable = RootUtils.isRootAvailable()
+    private val isRootAvailable = FileAccessManager.rootOperations.isAvailable()
     private val homePath = "/storage/emulated/0/"
     private val forceRootPaths = listOf("/cache", "/bin", "/etc", "/sdcard", "/vendor", "/system", "/product", "/data", "/data/data", "/data/user", "/data/user/0")
 
@@ -147,7 +146,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                     } catch (e: Exception) { /* ignore */ }
                 }
 
-                if (list.isEmpty()) {
+                if (list.isEmpty() || !isRootAvailable) {
                     provider.list(cleanPath).forEach {
                         list.add(FileItem(it.name, it.path, it.isDirectory, it.size))
                     }
