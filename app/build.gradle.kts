@@ -11,24 +11,34 @@ android {
         applicationId = "com.securevault"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 166
+        versionName = "1.6.6"
     }
 
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
-    
-    // INI TAMBAHAN BARUNYA: Menyamakan versi Java dan Kotlin
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+
+    flavorDimensions += "edition"
+    productFlavors {
+        create("free") {
+            dimension = "edition"
+            applicationId = "com.securevault"
+        }
+        create("pro") {
+            dimension = "edition"
+            applicationId = "com.securevault.pro"
+        }
+    }
 }
 
 dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.7.0")
-    implementation("com.github.topjohnwu.libsu:core:5.2.2")
     implementation("com.github.topjohnwu.libsu:core:5.2.2")
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
