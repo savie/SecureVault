@@ -17,3 +17,10 @@ local.properties
 
 # CodeOnTheGo IDE cache
 .cg/
+
+# Backup & temp files (jangan di-commit)
+*.bak_*
+*.tmp_*
+.tmp_*
+kondisi_aktual.txt
+struktur.txt
