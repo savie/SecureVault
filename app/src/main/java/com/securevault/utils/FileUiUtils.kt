@@ -13,6 +13,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.securevault.ui.viewmodel.FileItem
+import android.content.Intent
+import android.net.Uri
+import android.webkit.MimeTypeMap
+import android.widget.Toast
+import java.io.File
 
 fun formatSize(size: Long): String {
     return when {
@@ -64,4 +69,17 @@ fun PropertyRow(label: String, value: String) {
         Text(label, color = Color.Gray, modifier = Modifier.width(100.dp))
         Text(value, color = Color.White)
     }
+}
+
+fun openFile(context: android.content.Context, item: FileItem) {
+    try {
+        val ext = item.name.substringAfterLast(".", "")
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.fromFile(File(item.path)), mime)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(Intent.createChooser(intent, "Open with"))
+    } catch (e: Exception) { Toast.makeText(context, "No app found", Toast.LENGTH_SHORT).show() }
 }

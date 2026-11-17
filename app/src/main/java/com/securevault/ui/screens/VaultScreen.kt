@@ -4,7 +4,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,21 +14,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.securevault.data.local.VaultItem
-import com.securevault.ui.viewmodel.VaultViewModel
 import com.securevault.ui.components.AppTopBar
-import java.text.SimpleDateFormat
-import java.util.*
+import com.securevault.ui.components.VaultItemCard
+import com.securevault.ui.components.dialogs.DeleteVaultFileDialog
+import com.securevault.ui.components.dialogs.VaultBottomSheet
+import com.securevault.ui.components.dialogs.VaultFilePropertiesDialog
+import com.securevault.ui.viewmodel.VaultViewModel
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun VaultScreen(
-    masterPassword: String, 
+    masterPassword: String,
     onLock: () -> Unit,
     viewModel: VaultViewModel = viewModel()
 ) {
@@ -57,7 +56,6 @@ fun VaultScreen(
                 }
             )
         },
-        // FIX: FAB dihapus dari Scaffold, pindah ke dalam Box
         containerColor = Color(0xFF121212)
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -85,7 +83,6 @@ fun VaultScreen(
                 }
             }
 
-            // FIX: Row buat Message + FAB
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -94,7 +91,6 @@ fun VaultScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Message (kiri) - ambil sisa space
                 if (uiState.message != null) {
                     Card(
                         modifier = Modifier.weight(1f).padding(end = 12.dp),
@@ -116,7 +112,6 @@ fun VaultScreen(
                     Spacer(modifier = Modifier.weight(1f))
                 }
 
-                // FAB (kanan)
                 FloatingActionButton(
                     onClick = { filePickerLauncher.launch("*/*") },
                     containerColor = Color.White,
@@ -127,132 +122,33 @@ fun VaultScreen(
     }
 
     if (showMenu && selectedFile != null) {
-        ModalBottomSheet(
-            onDismissRequest = { showMenu = false },
-            containerColor = Color(0xFF1E1E1E)
-        ) {
-            Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-                Text(selectedFile!!.originalName, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(selectedFile!!.originalPath, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.height(16.dp))
-
-                ListItem(
-                    headlineContent = { Text("Restore (Decrypt)", color = Color.Green) },
-                    leadingContent = { Icon(Icons.Default.LockOpen, contentDescription = null, tint = Color.Green) },
-                    modifier = Modifier.combinedClickable(
-                        onClick = {
-                            viewModel.restoreFile(masterPassword, selectedFile!!)
-                            showMenu = false
-                        }
-                    )
-                )
-                ListItem(
-                    headlineContent = { Text("Delete from Vault", color = Color.Red) },
-                    leadingContent = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red) },
-                    modifier = Modifier.combinedClickable(
-                        onClick = { showDeleteDialog = true; showMenu = false }
-                    )
-                )
-                ListItem(
-                    headlineContent = { Text("Properties", color = Color.White) },
-                    leadingContent = { Icon(Icons.Default.Info, contentDescription = null, tint = Color.White) },
-                    modifier = Modifier.combinedClickable(
-                        onClick = { showPropertiesDialog = true; showMenu = false }
-                    )
-                )
-            }
-        }
+        VaultBottomSheet(
+            file = selectedFile!!,
+            onRestore = {
+                viewModel.restoreFile(masterPassword, selectedFile!!)
+                showMenu = false
+            },
+            onDelete = { showDeleteDialog = true; showMenu = false },
+            onProperties = { showPropertiesDialog = true; showMenu = false },
+            onDismiss = { showMenu = false }
+        )
     }
 
     if (showDeleteDialog && selectedFile != null) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete File", color = Color.White) },
-            text = { Text("Are you sure you want to permanently delete '${selectedFile!!.originalName}' from Vault?", color = Color.LightGray) },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteFile(selectedFile!!)
-                    showDeleteDialog = false
-                }) { Text("Delete", color = Color.Red) }
+        DeleteVaultFileDialog(
+            fileName = selectedFile!!.originalName,
+            onDelete = {
+                viewModel.deleteFile(selectedFile!!)
+                showDeleteDialog = false
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel", color = Color.Gray) }
-            },
-            containerColor = Color(0xFF1E1E1E)
+            onDismiss = { showDeleteDialog = false }
         )
     }
 
     if (showPropertiesDialog && selectedFile != null) {
-        val date = SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault()).format(Date(selectedFile!!.timestamp))
-        AlertDialog(
-            onDismissRequest = { showPropertiesDialog = false },
-            title = { Text("Properties", color = Color.White) },
-            text = {
-                Column {
-                    PropertyRow("Name", selectedFile!!.originalName)
-                    PropertyRow("Original Path", selectedFile!!.originalPath)
-                    PropertyRow("Type", selectedFile!!.mimeType)
-                    PropertyRow("Size", formatSize(selectedFile!!.fileSize))
-                    PropertyRow("Encrypted On", date)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showPropertiesDialog = false }) { Text("Close", color = Color.White) }
-            },
-            containerColor = Color(0xFF1E1E1E)
+        VaultFilePropertiesDialog(
+            file = selectedFile!!,
+            onDismiss = { showPropertiesDialog = false }
         )
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun VaultItemCard(file: VaultItem, onClick: () -> Unit, onLongClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
-    ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = getVaultFileIcon(file.mimeType),
-                contentDescription = null,
-                tint = getVaultIconColor(file.mimeType)
-            )
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(file.originalName, color = Color.White, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                Text(
-                    text = "${formatSize(file.fileSize)} • Encrypted",
-                    color = Color.Gray, style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-    }
-}
-
-private fun getVaultFileIcon(mimeType: String): ImageVector {
-    return when {
-        mimeType.startsWith("image/") -> Icons.Default.Image
-        mimeType.startsWith("video/") -> Icons.Default.Movie
-        mimeType.startsWith("audio/") -> Icons.Default.Audiotrack
-        mimeType == "application/pdf" -> Icons.Default.PictureAsPdf
-        mimeType.contains("zip") || mimeType.contains("rar") || mimeType.contains("7z") -> Icons.Default.Archive
-        mimeType.startsWith("text/") -> Icons.Default.Description
-        mimeType.contains("apk") -> Icons.Default.Android
-        else -> Icons.Default.InsertDriveFile
-    }
-}
-
-private fun getVaultIconColor(mimeType: String): Color {
-    return when {
-        mimeType.startsWith("image/") -> Color(0xFF4CAF50)
-        mimeType.startsWith("video/") -> Color(0xFF9C27B0)
-        mimeType.startsWith("audio/") -> Color(0xFFE91E63)
-        mimeType == "application/pdf" -> Color(0xFFF44336)
-        mimeType.contains("zip") || mimeType.contains("rar") -> Color(0xFFFF9800)
-        mimeType.contains("apk") -> Color(0xFF2196F3)
-        else -> Color.LightGray
     }
 }
