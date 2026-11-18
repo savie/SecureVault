@@ -9,7 +9,6 @@ import com.securevault.utils.FileOperationHelper
 import com.securevault.utils.FileResult
 import com.securevault.fs.FileAccessManager
 import com.securevault.utils.VaultImporter
-import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -68,12 +67,6 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     private val forceRootPaths = listOf("/cache", "/bin", "/etc", "/sdcard", "/vendor", "/system", "/product", "/data", "/data/data", "/data/user", "/data/user/0")
 
     init {
-        Shell.enableVerboseLogging = false
-        Shell.setDefaultBuilder(
-            Shell.Builder.create()
-                .setFlags(Shell.FLAG_MOUNT_MASTER)
-                .setTimeout(10)
-        )
         loadPanel(isLeft = true, path = homePath)
         loadPanel(isLeft = false, path = homePath)
     }
@@ -125,23 +118,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 val mustUseRoot = forceRootPaths.contains(cleanPath) || isRootAvailable
                 if (mustUseRoot && isRootAvailable) {
                     try {
-                        val cmd = if (cleanPath == "/data/data" || cleanPath.startsWith("/data/data/")) {
-                            "/system/bin/find \"$cleanPath\" -maxdepth 1 -mindepth 1 -exec /system/bin/stat -c '%n|%s|%F' {} + 2>/dev/null"
-                        } else {
-                            "/system/bin/stat -c '%n|%s|%F' \"$cleanPath\"/* 2>/dev/null"
-                        }
-                        val result = Shell.cmd(cmd).exec()
-                        result.out.forEach { line ->
-                            if (line.isNotEmpty()) {
-                                val parts = line.split("|")
-                                if (parts.size == 3) {
-                                    val fullPath = parts[0].trim()
-                                    val name = File(fullPath).name
-                                    val size = parts[1].trim().toLongOrNull() ?: 0L
-                                    val isDir = parts[2].contains("directory", true) || parts[2].contains("link", true)
-                                    list.add(FileItem(name, fullPath, isDir, size))
-                                }
-                            }
+                        val rootItems = FileAccessManager.rootOperations.listWithRoot(cleanPath)
+                        rootItems?.forEach { info ->
+                            list.add(FileItem(info.name, info.path, info.isDirectory, info.size))
                         }
                     } catch (e: Exception) { /* ignore */ }
                 }

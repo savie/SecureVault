@@ -1,12 +1,18 @@
 package com.securevault.fs
 
+import com.topjohnwu.superuser.Shell
 import java.io.File
 
-/**
- * Real implementation — pakai Runtime.exec("su").
- * Backend behavior identik dengan RootUtils lama.
- */
 class ProRootOperations : RootOperations {
+
+    init {
+        Shell.enableVerboseLogging = false
+        Shell.setDefaultBuilder(
+            Shell.Builder.create()
+                .setFlags(Shell.FLAG_MOUNT_MASTER)
+                .setTimeout(10)
+        )
+    }
 
     override fun isAvailable(): Boolean {
         return try {
@@ -45,7 +51,29 @@ class ProRootOperations : RootOperations {
     }
 
     override fun listWithRoot(path: String): List<FileInfo>? {
-        // Implementasi di 6.6D-3c (bersama Shell block FileManagerViewModel)
-        return null
+        return try {
+            val cmd = if (path == "/data/data" || path.startsWith("/data/data/")) {
+                "/system/bin/find \"$path\" -maxdepth 1 -mindepth 1 -exec /system/bin/stat -c '%n|%s|%F' {} + 2>/dev/null"
+            } else {
+                "/system/bin/stat -c '%n|%s|%F' \"$path\"/* 2>/dev/null"
+            }
+            val result = Shell.cmd(cmd).exec()
+            val out = mutableListOf<FileInfo>()
+            result.out.forEach { line ->
+                if (line.isNotEmpty()) {
+                    val parts = line.split("|")
+                    if (parts.size == 3) {
+                        val fullPath = parts[0].trim()
+                        val name = File(fullPath).name
+                        val size = parts[1].trim().toLongOrNull() ?: 0L
+                        val isDir = parts[2].contains("directory", true) || parts[2].contains("link", true)
+                        out.add(FileInfo(name, fullPath, isDir, size, 0L))
+                    }
+                }
+            }
+            out
+        } catch (e: Exception) {
+            null
+        }
     }
 }
