@@ -17,7 +17,7 @@ data class FileInfo(
  *
  * Implementasi:
  * - StandardFileAccessProvider -> java.io.File (main source set)
- * - RootFileAccessProvider     -> libsu / su (pro source set, fase 6.6D-3)
+ * - RootOperations             -> operasi privileged melalui flavor-specific implementation
  *
  * Aturan:
  * - SEMUA path adalah absolute string.

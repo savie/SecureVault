@@ -5,7 +5,7 @@ package com.securevault.fs
  *
  * Impl:
  * - free flavor : FreeRootOperations -> stub, semua return false/null
- * - pro flavor  : ProRootOperations  -> real (libsu / su), fase 6.6D-3b
+ * - pro flavor  : ProRootOperations  -> real (libsu / su), fase 6.6D-3c
  */
 interface RootOperations {
     fun isAvailable(): Boolean

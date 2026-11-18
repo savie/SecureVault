@@ -172,14 +172,24 @@ app/src/main (shared), app/src/free/java/com/securevault/fs/ (FreeRootOperations
 Gradle flavor: free (com.securevault), pro (com.securevault.pro). Root code HANYA di pro/.
 Build output: app/build/outputs/apk/{free,pro}/debug/
 
+## 5.1 File Access Architecture (6.6D)
+
+- FileAccessProvider dan StandardFileAccessProvider berada di main source set.
+- FileAccessManager menjadi entry point untuk standard provider dan RootOperations.
+- RootOperations adalah interface bersama.
+- FreeRootOperations dan ProviderFactory berada di free source set.
+- ProRootOperations dan ProviderFactory berada di pro source set.
+- libsu hanya dideklarasikan sebagai proImplementation.
+- FileManagerViewModel menggunakan RootOperations.listWithRoot() untuk root listing.
+- Root implementation tidak boleh bocor ke free source set.
+
 ## 6. Roadmap (ref, bukan posisi absolut)
 Cek tag terakhir: git tag -l "v1.*" | sort -V | tail -10
 
-Selesai: 1-6.5 core, 6.6A-C refactor, 6.6D-1 FileAccessProvider, 6.6D-2 wire listing, 6.6D-3a Gradle flavor + RootOperations, 6.6D-3b Root split to Pro + bug fixes
+Selesai: 1-6.5 core, 6.6A-C refactor, 6.6D-1 FileAccessProvider, 6.6D-2 wire listing, 6.6D-3a Gradle flavors + RootOperations, 6.6D-3b Root split to Pro + bug fixes, 6.6D-3c Root listing pindah ke ProRootOperations + libsu proImplementation
 
 Belum:
-- 6.6D-3c: Shell block VM -> ProRootOperations.listWithRoot(), libsu -> proImplementation
-- 6.6D-3d: Cleanup + tag final 6.6D
+- 6.6D-3d: Cleanup, audit akhir, build dan smoke test Free/Pro, tag final 6.6D
 - 6.7: Archive (compress/extract zip+tar via commons-compress)
 - 6.8: File Manager upgrade (multi-select, batch, search, bookmarks)
 - 6.9: In-app viewer (image Coil, video Media3, pdf native, text custom)
@@ -226,4 +236,4 @@ Instruksi AI-agnostic. Format: terminal block bash, bukan JSON. Behavior: langsu
 Kalau tools beda, adaptasi, tapi tetap: user eksekusi terminal, AI kasih script + penjelasan.
 
 ---
-Versi: 1.1 - 2026-11-18 (setelah 6.6D-3b, tambah section 2 CARA KERJA)
+Versi: 1.2 - 2026-11-18 (roadmap diperbarui setelah 6.6D-3c; finalisasi 3d)
