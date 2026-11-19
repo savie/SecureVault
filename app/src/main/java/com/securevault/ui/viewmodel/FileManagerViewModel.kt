@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.securevault.data.local.ContainerDbHelper
 import com.securevault.utils.ConflictAction
 import com.securevault.utils.FileOperationHelper
+import com.securevault.utils.ArchiveFormat
+import com.securevault.utils.ArchiveHelper
+import com.securevault.utils.ArchiveResult
 import com.securevault.utils.FileResult
 import com.securevault.fs.FileAccessManager
 import com.securevault.utils.VaultImporter
@@ -55,7 +58,8 @@ data class FileManagerState(
     val leftPanel: PanelState = PanelState(),
     val rightPanel: PanelState = PanelState(),
     val pendingPaste: PendingPaste? = null,
-    val pendingConflict: PendingConflict? = null
+    val pendingConflict: PendingConflict? = null,
+    val archiveMessage: String? = null
 )
 
 class FileManagerViewModel(application: Application) : AndroidViewModel(application) {
@@ -300,6 +304,72 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
             withContext(Dispatchers.IO) { FileOperationHelper.rename(File(item.path), newName) }
             loadPanel(isLeft, panel.currentPath)
+        }
+    }
+
+    fun clearArchiveMessage() {
+        _state.value = _state.value.copy(archiveMessage = null)
+    }
+
+    private fun publishArchiveMessage(message: String) {
+        _state.value = _state.value.copy(archiveMessage = message)
+    }
+
+    fun compressFile(item: FileItem, isLeft: Boolean, format: ArchiveFormat) {
+        if (isVirtualContainer(item)) {
+            publishArchiveMessage("Mounted containers cannot be archived.")
+            return
+        }
+
+        val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
+
+        viewModelScope.launch {
+            val loadingPanel = panel.copy(isLoading = true)
+            _state.value = if (isLeft) {
+                _state.value.copy(leftPanel = loadingPanel)
+            } else {
+                _state.value.copy(rightPanel = loadingPanel)
+            }
+
+            val result = ArchiveHelper.compress(File(item.path), format)
+            val message = when (result) {
+                is ArchiveResult.Success ->
+                    "Archive created: ${result.output.name}"
+                is ArchiveResult.Failure ->
+                    "Compress failed: ${result.reason}"
+            }
+
+            loadPanel(isLeft, panel.currentPath)
+            publishArchiveMessage(message)
+        }
+    }
+
+    fun extractArchive(item: FileItem, isLeft: Boolean) {
+        if (isVirtualContainer(item)) {
+            publishArchiveMessage("Mounted containers cannot be extracted.")
+            return
+        }
+
+        val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
+
+        viewModelScope.launch {
+            val loadingPanel = panel.copy(isLoading = true)
+            _state.value = if (isLeft) {
+                _state.value.copy(leftPanel = loadingPanel)
+            } else {
+                _state.value.copy(rightPanel = loadingPanel)
+            }
+
+            val result = ArchiveHelper.extract(File(item.path))
+            val message = when (result) {
+                is ArchiveResult.Success ->
+                    "Extracted beside archive."
+                is ArchiveResult.Failure ->
+                    "Extract failed: ${result.reason}"
+            }
+
+            loadPanel(isLeft, panel.currentPath)
+            publishArchiveMessage(message)
         }
     }
 

@@ -10,6 +10,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.securevault.ui.viewmodel.ClipboardAction
 import com.securevault.utils.ConflictAction
+import com.securevault.utils.ArchiveFormat
 import com.securevault.utils.PropertyRow
 import com.securevault.utils.formatSize
 import java.io.File
@@ -167,6 +168,43 @@ fun FilePropertiesDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close", color = Color.White) } },
+        containerColor = Color(0xFF1E1E1E)
+    )
+}
+
+@Composable
+fun ArchiveFormatDialog(
+    fileName: String,
+    onSelect: (ArchiveFormat) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Compress", color = Color.White) },
+        text = {
+            Column {
+                Text("Create archive from:", color = Color.LightGray)
+                Spacer(Modifier.height(6.dp))
+                Text(fileName, color = Color.White, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                Text("Choose archive format:", color = Color.LightGray)
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(onClick = { onSelect(ArchiveFormat.ZIP) }) {
+                    Text("ZIP", color = Color.White)
+                }
+                TextButton(onClick = { onSelect(ArchiveFormat.TAR_GZ) }) {
+                    Text("TAR.GZ", color = Color.Green)
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Color.Gray)
+            }
+        },
         containerColor = Color(0xFF1E1E1E)
     )
 }

@@ -63,6 +63,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-process:2.7.0")
     implementation("androidx.navigation:navigation-compose:2.7.7")
+    implementation("org.apache.commons:commons-compress:1.26.0")
+    implementation("commons-codec:commons-codec:1.16.1")
 
     // Libsu cuma di Pro (pakai kurung kurawal biar Kotlin DSL ga bingung)
     add("proImplementation", "com.github.topjohnwu.libsu:core:5.2.2")

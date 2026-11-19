@@ -183,14 +183,32 @@ Build output: app/build/outputs/apk/{free,pro}/debug/
 - FileManagerViewModel menggunakan RootOperations.listWithRoot() untuk root listing.
 - Root implementation tidak boleh bocor ke free source set.
 
+## 5.2 Archive Operations (6.7)
+
+- `ArchiveHelper.kt` berada di `app/src/main/java/com/securevault/utils/`.
+- Mendukung kompresi dan ekstraksi ZIP serta TAR.GZ melalui Apache Commons Compress.
+- Dependency: `commons-compress:1.26.0` dan `commons-codec:1.16.1`.
+- Tersedia pada Free dan Pro; tidak menggunakan root.
+- Kompresi dilakukan untuk satu file atau folder per operasi.
+- Output arsip berada di folder panel aktif, sejajar dengan sumber.
+- Format nama output: `[nama].zip` atau `[nama].tar.gz`.
+- Jika nama output sudah digunakan, tambahkan suffix `(1)`, `(2)`, dan seterusnya.
+- Aksi Compress tersedia melalui long-press file/folder dan bottom sheet.
+- Aksi Extract tersedia untuk arsip ZIP dan TAR.GZ.
+- Ekstraksi dilakukan langsung di folder induk arsip, bukan subfolder otomatis.
+- Struktur folder di dalam arsip dipertahankan. Wrapper folder yang namanya sama dengan nama dasar arsip dilepas.
+- Konflik nama file/folder hasil ekstraksi menggunakan suffix `(1)`, `(2)`, tanpa overwrite.
+- Validasi path mencegah ZIP Slip/TAR path traversal; symbolic link ditolak.
+- Operasi menggunakan streaming I/O dan membersihkan output parsial jika gagal.
+- Progress menggunakan indikator loading panel yang sudah tersedia.
+- Smoke test manual Free dan Pro: kompresi, ekstraksi, ZIP, TAR.GZ, serta bentrok nama dinyatakan berhasil.
+
 ## 6. Roadmap (ref, bukan posisi absolut)
 Cek tag terakhir: git tag -l "v1.*" | sort -V | tail -10
 
-Selesai: 1-6.5 core, 6.6A-C refactor, 6.6D-1 FileAccessProvider, 6.6D-2 wire listing, 6.6D-3a Gradle flavors + RootOperations, 6.6D-3b Root split to Pro + bug fixes, 6.6D-3c Root listing pindah ke ProRootOperations + libsu proImplementation
+Selesai: 1-6.5 core, 6.6A-C refactor, 6.6D-1 sampai 6.6D-3d File Access Architecture, 6.7 Archive ZIP dan TAR.GZ
 
 Belum:
-- 6.6D-3d: Cleanup, audit akhir, build dan smoke test Free/Pro, tag final 6.6D
-- 6.7: Archive (compress/extract zip+tar via commons-compress)
 - 6.8: File Manager upgrade (multi-select, batch, search, bookmarks)
 - 6.9: In-app viewer (image Coil, video Media3, pdf native, text custom)
 - 6.10: Localization
@@ -236,4 +254,4 @@ Instruksi AI-agnostic. Format: terminal block bash, bukan JSON. Behavior: langsu
 Kalau tools beda, adaptasi, tapi tetap: user eksekusi terminal, AI kasih script + penjelasan.
 
 ---
-Versi: 1.2 - 2026-11-18 (roadmap diperbarui setelah 6.6D-3c; finalisasi 3d)
+Versi: 1.3 - 2026-11-19 (Fase 6.7 selesai; dokumentasi Archive diperbarui)

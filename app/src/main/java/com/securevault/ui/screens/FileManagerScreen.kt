@@ -18,7 +18,10 @@ import com.securevault.ui.components.FilePanel
 import com.securevault.ui.components.MenuItem
 import com.securevault.ui.components.dialogs.*
 import com.securevault.ui.viewmodel.*
+import com.securevault.utils.ArchiveFormat
+import com.securevault.utils.ArchiveHelper
 import com.securevault.utils.openFile
+import java.io.File
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -36,6 +39,14 @@ fun FileManagerScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPropertiesDialog by remember { mutableStateOf(false) }
     var showToolsDialog by remember { mutableStateOf(false) }
+    var showArchiveFormatDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.archiveMessage) {
+        state.archiveMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            viewModel.clearArchiveMessage()
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         AppTopBar(
@@ -154,12 +165,29 @@ fun FileManagerScreen(
                     showToolsDialog = true
                     showMenu = false
                 }
-                MenuItem("Compress", Icons.Default.Archive, Color.Gray) {
-                    Toast.makeText(context, "Compress: Coming Soon!", Toast.LENGTH_SHORT).show()
+                MenuItem("Compress", Icons.Default.Archive, Color.White) {
+                    showArchiveFormatDialog = true
                     showMenu = false
+                }
+                if (!selectedItem!!.isDirectory && ArchiveHelper.detectFormat(File(selectedItem!!.path)) != null) {
+                    MenuItem("Extract", Icons.Default.Archive, Color.White) {
+                        viewModel.extractArchive(selectedItem!!, selectedIsLeft)
+                        showMenu = false
+                    }
                 }
             }
         }
+    }
+
+    if (showArchiveFormatDialog && selectedItem != null) {
+        ArchiveFormatDialog(
+            fileName = selectedItem!!.name,
+            onSelect = { format ->
+                viewModel.compressFile(selectedItem!!, selectedIsLeft, format)
+                showArchiveFormatDialog = false
+            },
+            onDismiss = { showArchiveFormatDialog = false }
+        )
     }
 
     if (showRenameDialog && selectedItem != null) {
