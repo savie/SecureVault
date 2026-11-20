@@ -9,6 +9,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
@@ -48,6 +49,7 @@ import com.securevault.ui.screens.VaultScreen
 import com.securevault.ui.theme.SecureVaultTheme
 import com.securevault.ui.viewmodel.FileManagerViewModel
 import com.securevault.utils.ContainerSessionManager
+import com.securevault.utils.MasterPasswordStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -102,32 +104,65 @@ class MainActivity : FragmentActivity() {
 fun VaultApp() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
-    
-    var savedPassword by remember { mutableStateOf(prefs.getString("master_pwd", null)) }
-    var biometricEnabled by remember { mutableStateOf(prefs.getBoolean("biometric_enabled", true)) }
+
+    var passwordState by remember(context) {
+        mutableStateOf(MasterPasswordStore.loadOrMigrate(context))
+    }
+    var biometricEnabled by remember {
+        mutableStateOf(prefs.getBoolean("biometric_enabled", true))
+    }
     var unlocked by remember { mutableStateOf(false) }
 
-    when {
-        savedPassword == null -> SetupScreen(
-            onDone = { pwd ->
-                prefs.edit().putString("master_pwd", pwd).apply()
-                savedPassword = pwd
+    when (val state = passwordState) {
+        is MasterPasswordStore.LoadResult.Loaded -> {
+            if (!unlocked) {
+                UnlockScreen(
+                    savedPassword = state.password,
+                    biometricEnabled = biometricEnabled,
+                    onUnlock = { unlocked = true }
+                )
+            } else {
+                MainAppScreen(
+                    masterPassword = state.password,
+                    onLock = { unlocked = false },
+                    onBiometricToggle = { isEnabled ->
+                        biometricEnabled = isEnabled
+                        prefs.edit().putBoolean("biometric_enabled", isEnabled).apply()
+                    },
+                    biometricEnabled = biometricEnabled
+                )
             }
-        )
-        !unlocked -> UnlockScreen(
-            savedPassword = savedPassword!!,
-            biometricEnabled = biometricEnabled,
-            onUnlock = { unlocked = true }
-        )
-        else -> MainAppScreen(
-            masterPassword = savedPassword!!,
-            onLock = { unlocked = false },
-            onBiometricToggle = { isEnabled ->
-                biometricEnabled = isEnabled
-                prefs.edit().putBoolean("biometric_enabled", isEnabled).apply()
-            },
-            biometricEnabled = biometricEnabled
-        )
+        }
+
+        MasterPasswordStore.LoadResult.NotSet -> {
+            SetupScreen(
+                onDone = { password ->
+                    val saved = MasterPasswordStore.save(context, password)
+                    if (saved) {
+                        passwordState = MasterPasswordStore.LoadResult.Loaded(password)
+                    }
+                    saved
+                }
+            )
+        }
+
+        is MasterPasswordStore.LoadResult.Error -> {
+            androidx.compose.foundation.layout.Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Master Password Error", style = MaterialTheme.typography.headlineSmall)
+                androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
+                Text(state.message, color = MaterialTheme.colorScheme.error)
+                androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
+                Button(onClick = {
+                    passwordState = MasterPasswordStore.loadOrMigrate(context)
+                }) {
+                    Text("Retry")
+                }
+            }
+        }
     }
 }
 

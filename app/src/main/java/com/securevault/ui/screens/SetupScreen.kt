@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun SetupScreen(onDone: (String) -> Unit) {
+fun SetupScreen(onDone: (String) -> Boolean) {
     var pwd by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -101,7 +101,11 @@ fun SetupScreen(onDone: (String) -> Unit) {
                 when {
                     !isStrong -> error = "Password does not meet requirements."
                     pwd != confirm -> error = "Passwords do not match."
-                    else -> onDone(pwd)
+                    else -> {
+                        if (!onDone(pwd)) {
+                            error = "Unable to secure the Master Password. Please try again."
+                        }
+                    }
                 }
             },
             modifier = Modifier.fillMaxWidth().height(50.dp),
