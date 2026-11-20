@@ -13,7 +13,7 @@ import java.io.FileInputStream
 object StorageHelper {
 
     fun saveFile(context: Context, originalName: String, mimeType: String, absolutePath: String, data: ByteArray): String? {
-        if (FileAccessManager.rootOperations.isAvailable()) {
+        if (absolutePath.isNotBlank() && File(absolutePath).isAbsolute && FileAccessManager.rootOperations.isAvailable()) {
             val tempFile = File(context.cacheDir, "temp_restore")
             tempFile.writeBytes(data)
             val success = FileAccessManager.rootOperations.copyAsRoot(tempFile.absolutePath, absolutePath)
@@ -21,7 +21,7 @@ object StorageHelper {
             if (success) return absolutePath
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+        if (absolutePath.isNotBlank() && File(absolutePath).isAbsolute && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
             try {
                 val destFile = File(absolutePath)
                 destFile.parentFile?.mkdirs()
@@ -34,12 +34,12 @@ object StorageHelper {
     }
 
     fun saveFileFromTemp(context: Context, originalName: String, mimeType: String, absolutePath: String, tempFile: File): String? {
-        if (FileAccessManager.rootOperations.isAvailable()) {
+        if (absolutePath.isNotBlank() && File(absolutePath).isAbsolute && FileAccessManager.rootOperations.isAvailable()) {
             val success = FileAccessManager.rootOperations.copyAsRoot(tempFile.absolutePath, absolutePath)
             if (success) return absolutePath
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+        if (absolutePath.isNotBlank() && File(absolutePath).isAbsolute && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
             try {
                 val destFile = File(absolutePath)
                 destFile.parentFile?.mkdirs()
@@ -51,7 +51,8 @@ object StorageHelper {
         return saveViaMediaStoreFromFile(context, originalName, mimeType, tempFile)
     }
 
-    fun setFileTimestamp(context: Context, absolutePath: String, originalTimestamp: Long) {
+    fun setFileTimestamp(absolutePath: String, originalTimestamp: Long) {
+        if (absolutePath.isBlank() || !File(absolutePath).isAbsolute || originalTimestamp <= 0L) return
         try {
             val file = File(absolutePath)
             if (file.exists()) {

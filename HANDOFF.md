@@ -237,14 +237,19 @@ Fokus: menjaga integritas data, keamanan autentikasi, dan stabilitas lifecycle a
 | 6.7-d1 | Container Database Migration — memastikan migrasi database tidak menghapus data yang sudah ada | DONE |
 | 6.7-d2 | Master Password Security — menyimpan Master Password menggunakan Android Keystore dan AES-256-GCM | DONE |
 | 6.7-d3 | Biometric Security Hardening — autentikasi biometrik menggunakan dedicated Keystore key dan CryptoObject | DONE |
-| 6.7-d4 | Vault Encryption Integrity — audit dan perbaikan integritas proses enkripsi serta penghapusan source | NOT STARTED |
+| 6.7-d4 | Vault Encryption Integrity — audit dan perbaikan integritas proses enkripsi serta penghapusan source | DONE |
 | 6.7-d5 | Auto-Lock Lifecycle — audit lifecycle observer, Activity recreation, process lifecycle, dan Container Auto-Lock | NOT STARTED |
 
 Catatan:
 - 6.7-d1 sampai 6.7-d3 sudah selesai dan memiliki checkpoint Git masing-masing.
 - Biometric Container Unmount untuk Container yang menggunakan manual password masih pending.
 - Container yang menggunakan Master Password mempertahankan perilaku yang sudah ada. Jangan mengubahnya tanpa persetujuan.
-- 6.7-d4 wajib mengaudit `VaultImporter.kt` dan `VaultRepository.kt`. Proses enkripsi tidak boleh dilaporkan berhasil apabila penghapusan source gagal. Evaluasi mekanisme penghapusan melalui standard/root access dengan tetap menjaga integritas data dan perilaku yang sudah ada.
+- 6.7-d4 selesai. `CryptoManager` menerapkan parsing ciphertext yang ketat, autentikasi AES-GCM, dan verifikasi ukuran plaintext tanpa membuat temporary plaintext saat verifikasi enkripsi.
+- 6.7-d4: `VaultImporter`, `VaultRepository`, `VaultDbHelper`, `FileHelper`, dan `StorageHelper` diperkuat untuk validasi source, penyimpanan metadata, verifikasi ciphertext, serta penghapusan source yang terkonfirmasi. Kegagalan penghapusan source tidak dilaporkan sebagai keberhasilan penuh.
+- 6.7-d4: temporary plaintext pada proses restore `VaultImporter` selalu dibersihkan melalui `finally`, termasuk ketika dekripsi gagal atau terjadi exception.
+- 6.7-d4: pengujian runtime Free dan Pro berhasil. Enkripsi menghapus source, restore berhasil, dan SHA-256 hasil restore identik dengan file asli.
+- 6.7-d4: Free mengembalikan file ke `Download/SecureVault`, sedangkan Pro mengembalikan file ke folder asal sesuai hasil pengujian.
+- 6.7-d4: build `assembleFreeDebug` dan `assembleProDebug` berhasil. Ciphertext tampering belum diuji langsung dengan file yang dimodifikasi; validasi penolakan autentikasi telah diperiksa melalui kode.
 - 6.7-d5 wajib mengaudit registrasi dan pelepasan lifecycle observer di `MainActivity`, Activity recreation, process lifecycle, serta Auto-Lock Container. Pastikan tidak menimbulkan regresi navigasi maupun autentikasi.
 
 ### 6.2 Architecture Improvement

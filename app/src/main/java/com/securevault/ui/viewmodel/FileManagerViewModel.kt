@@ -12,6 +12,7 @@ import com.securevault.utils.ArchiveResult
 import com.securevault.utils.FileResult
 import com.securevault.fs.FileAccessManager
 import com.securevault.utils.VaultImporter
+import com.securevault.utils.VaultImportResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -257,7 +258,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             val targetPanel = if (conflict.isLeftTarget) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (conflict.isLeftTarget) _state.value.copy(leftPanel = targetPanel.copy(isLoading = true)) else _state.value.copy(rightPanel = targetPanel.copy(isLoading = true))
 
-            val result = withContext(Dispatchers.IO) {
+            withContext(Dispatchers.IO) {
                 when (conflict.action) {
                     ClipboardAction.COPY -> FileOperationHelper.copy(conflict.sourceFile, conflict.destDir, action)
                     ClipboardAction.MOVE -> FileOperationHelper.move(conflict.sourceFile, conflict.destDir, action)
@@ -372,14 +373,24 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             publishArchiveMessage(message)
         }
     }
-
     fun encryptToVault(item: FileItem, isLeft: Boolean, masterPassword: String) {
         viewModelScope.launch {
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
-            _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
-            
-            withContext(Dispatchers.IO) { VaultImporter.encryptFile(getApplication(), item.path, masterPassword) }
+            _state.value = if (isLeft) {
+                _state.value.copy(leftPanel = panel.copy(isLoading = true))
+            } else {
+                _state.value.copy(rightPanel = panel.copy(isLoading = true))
+            }
+
+            val result = VaultImporter.encryptFile(getApplication(), item.path, masterPassword)
+            val message = when (result) {
+                VaultImportResult.SUCCESS -> "Encrypted successfully. Original file removed."
+                VaultImportResult.SOURCE_DELETE_FAILED -> "Encrypted copy saved in Vault, but original could not be deleted. Original kept."
+                VaultImportResult.FAILURE -> "Encryption failed. Original file was kept."
+            }
+
             loadPanel(isLeft, panel.currentPath)
+            publishArchiveMessage(message)
         }
     }
 

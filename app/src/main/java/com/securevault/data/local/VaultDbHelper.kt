@@ -24,61 +24,97 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 4) {
-            // Tambah kolom originalTimestamp (nilai default 0 buat data lama)
             db.execSQL("ALTER TABLE vault_files ADD COLUMN originalTimestamp INTEGER DEFAULT 0")
         }
     }
 
-    fun insertFile(uuid: String, name: String, mime: String, size: Long, path: String, originalTimestamp: Long) {
+    fun insertFile(
+        uuid: String,
+        name: String,
+        mime: String,
+        size: Long,
+        path: String,
+        originalTimestamp: Long
+    ) {
         val db = writableDatabase
-        val values = ContentValues().apply {
-            put("uuid", uuid)
-            put("originalName", name)
-            put("mimeType", mime)
-            put("fileSize", size)
-            put("timestamp", System.currentTimeMillis())
-            put("originalPath", path)
-            put("originalTimestamp", originalTimestamp)
+
+        try {
+            val values = ContentValues().apply {
+                put("uuid", uuid)
+                put("originalName", name)
+                put("mimeType", mime)
+                put("fileSize", size)
+                put("timestamp", System.currentTimeMillis())
+                put("originalPath", path)
+                put("originalTimestamp", originalTimestamp)
+            }
+
+            val insertedRow = db.insert("vault_files", null, values)
+            if (insertedRow == -1L) {
+                throw IllegalStateException("Failed to save Vault metadata")
+            }
+        } finally {
+            db.close()
         }
-        db.insert("vault_files", null, values)
-        db.close()
     }
 
     fun getAllFiles(): List<VaultItem> {
         val list = mutableListOf<VaultItem>()
         val db = readableDatabase
-        val cursor = db.rawQuery("SELECT * FROM vault_files ORDER BY timestamp DESC", null)
-        if (cursor.moveToFirst()) {
-            do {
-                list.add(VaultItem(
-                    cursor.getString(0), cursor.getString(1), cursor.getString(2),
-                    cursor.getLong(3), cursor.getLong(4), cursor.getString(5), cursor.getLong(6)
-                ))
-            } while (cursor.moveToNext())
+
+        try {
+            db.rawQuery("SELECT * FROM vault_files ORDER BY timestamp DESC", null).use { cursor ->
+                if (cursor.moveToFirst()) {
+                    do {
+                        list.add(
+                            VaultItem(
+                                cursor.getString(0),
+                                cursor.getString(1),
+                                cursor.getString(2),
+                                cursor.getLong(3),
+                                cursor.getLong(4),
+                                cursor.getString(5),
+                                cursor.getLong(6)
+                            )
+                        )
+                    } while (cursor.moveToNext())
+                }
+            }
+        } finally {
+            db.close()
         }
-        cursor.close()
-        db.close()
+
         return list
     }
 
     fun getFileByUuid(uuid: String): VaultItem? {
         val db = readableDatabase
-        val cursor = db.rawQuery("SELECT * FROM vault_files WHERE uuid = ?", arrayOf(uuid))
-        var item: VaultItem? = null
-        if (cursor.moveToFirst()) {
-            item = VaultItem(
-                cursor.getString(0), cursor.getString(1), cursor.getString(2),
-                cursor.getLong(3), cursor.getLong(4), cursor.getString(5), cursor.getLong(6)
-            )
+
+        try {
+            db.rawQuery("SELECT * FROM vault_files WHERE uuid = ?", arrayOf(uuid)).use { cursor ->
+                if (!cursor.moveToFirst()) return null
+
+                return VaultItem(
+                    cursor.getString(0),
+                    cursor.getString(1),
+                    cursor.getString(2),
+                    cursor.getLong(3),
+                    cursor.getLong(4),
+                    cursor.getString(5),
+                    cursor.getLong(6)
+                )
+            }
+        } finally {
+            db.close()
         }
-        cursor.close()
-        db.close()
-        return item
     }
 
     fun deleteFile(uuid: String) {
         val db = writableDatabase
-        db.delete("vault_files", "uuid = ?", arrayOf(uuid))
-        db.close()
+        try {
+            db.delete("vault_files", "uuid = ?", arrayOf(uuid))
+        } finally {
+            db.close()
+        }
     }
 }

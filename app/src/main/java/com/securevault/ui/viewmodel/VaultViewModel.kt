@@ -24,52 +24,88 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(VaultUiState())
     val uiState: StateFlow<VaultUiState> = _uiState.asStateFlow()
 
-    init { refreshFiles() }
+    init {
+        refreshFiles()
+    }
 
     fun refreshFiles() {
         viewModelScope.launch {
-            val files = withContext(Dispatchers.IO) { repository.getVaultFiles() }
+            val files = withContext(Dispatchers.IO) {
+                repository.getVaultFiles()
+            }
             _uiState.value = _uiState.value.copy(files = files)
         }
     }
 
     fun encryptFile(password: String, uri: Uri) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, message = "Encrypting file...")
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                message = "Encrypting file..."
+            )
+
             try {
                 val path = repository.encryptAndSaveFile(password, uri)
-                _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Encrypted! Path: $path")
-                refreshFiles()
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    message = "Encrypted successfully. Original removed: $path"
+                )
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Error: ${e.message}")
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    message = "❌ ${e.message ?: "Encryption failed"}"
+                )
             }
+
+            refreshFiles()
         }
     }
 
     fun restoreFile(password: String, item: VaultItem) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, message = "Decrypting & restoring...")
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                message = "Decrypting & restoring..."
+            )
+
             try {
                 val location = repository.decryptAndRestoreFile(password, item)
-                _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Restored to: $location")
-                refreshFiles()
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    message = "✅ Restored to: $location"
+                )
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Error: ${e.message}")
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    message = "❌ Error: ${e.message}"
+                )
             }
+
+            refreshFiles()
         }
     }
 
-    // FUNGSI BARU: Delete File
     fun deleteFile(item: VaultItem) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, message = "Deleting file...")
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                message = "Deleting file..."
+            )
+
             try {
                 repository.deleteVaultFile(item)
-                _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ File deleted!")
-                refreshFiles()
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    message = "✅ File deleted!"
+                )
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Error: ${e.message}")
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    message = "❌ Error: ${e.message}"
+                )
             }
+
+            refreshFiles()
         }
     }
 }
