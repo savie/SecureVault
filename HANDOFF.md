@@ -119,7 +119,7 @@ LANGSUNG EKSEKUSI:
 ### 2.7 Kalau AI Ganti Sesi / Kena Limit
 
 User bakal paste HANDOFF.md ini ke AI baru. AI baru WAJIB:
-1. Baca sampai habis
+1. Baca sampai habis, terutama bagian 5.3, 6, dan 8
 2. Konfirmasi + ringkas 3 poin (environment, cara kerja, workflow)
 3. Minta user jalanin: git log -5, git tag, git status
 4. Tanya: "lanjut dari mana"
@@ -224,18 +224,94 @@ Pending:
 Di luar scope saat ini:
 - Container yang menggunakan Master Password tetap mengikuti perilaku mount/unmount yang sudah ada.
 
-## 6. Roadmap (ref, bukan posisi absolut)
-Cek tag terakhir: git tag -l "v1.*" | sort -V | tail -10
+## 6. Roadmap Resmi SecureVault
 
-Selesai: 1-6.5 core, 6.6A-C refactor, 6.6D-1 sampai 6.6D-3d File Access Architecture, 6.7 Archive ZIP dan TAR.GZ.
+Roadmap ini adalah acuan utama urutan pengembangan SecureVault. Jangan melewati tahapan atau mengubah prioritas tanpa persetujuan user.
 
-Belum (roadmap utama):
-- 6.8: File Manager upgrade (multi-select, batch, search, bookmarks)
-- 6.9: In-app viewer (image Coil, video Media3, pdf native, text custom)
-- 6.10: Localization
-- 6.11: Network clients (tunda)
-- 7.0: Release (R8, signing, Play Store)
+### 6.1 Phase 6.7 — Stability & Security
 
+Fokus: menjaga integritas data, keamanan autentikasi, dan stabilitas lifecycle aplikasi.
+
+| Subtask | Deskripsi | Status |
+|---|---|---|
+| 6.7-d1 | Container Database Migration — memastikan migrasi database tidak menghapus data yang sudah ada | DONE |
+| 6.7-d2 | Master Password Security — menyimpan Master Password menggunakan Android Keystore dan AES-256-GCM | DONE |
+| 6.7-d3 | Biometric Security Hardening — autentikasi biometrik menggunakan dedicated Keystore key dan CryptoObject | DONE |
+| 6.7-d4 | Vault Encryption Integrity — audit dan perbaikan integritas proses enkripsi serta penghapusan source | NOT STARTED |
+| 6.7-d5 | Auto-Lock Lifecycle — audit lifecycle observer, Activity recreation, process lifecycle, dan Container Auto-Lock | NOT STARTED |
+
+Catatan:
+- 6.7-d1 sampai 6.7-d3 sudah selesai dan memiliki checkpoint Git masing-masing.
+- Biometric Container Unmount untuk Container yang menggunakan manual password masih pending.
+- Container yang menggunakan Master Password mempertahankan perilaku yang sudah ada. Jangan mengubahnya tanpa persetujuan.
+- 6.7-d4 wajib mengaudit `VaultImporter.kt` dan `VaultRepository.kt`. Proses enkripsi tidak boleh dilaporkan berhasil apabila penghapusan source gagal. Evaluasi mekanisme penghapusan melalui standard/root access dengan tetap menjaga integritas data dan perilaku yang sudah ada.
+- 6.7-d5 wajib mengaudit registrasi dan pelepasan lifecycle observer di `MainActivity`, Activity recreation, process lifecycle, serta Auto-Lock Container. Pastikan tidak menimbulkan regresi navigasi maupun autentikasi.
+
+### 6.2 Architecture Improvement
+
+Dikerjakan setelah Phase 6.7 selesai dan sebelum 6.8A.
+
+Lakukan Architecture Audit terlebih dahulu dalam mode read-only. Jangan langsung mengubah kode sebelum hasil audit dibahas dan disetujui.
+
+Area audit:
+
+1. App Entry & Authentication — `MainActivity`, startup, navigation, authentication, Auto-Lock, dan lifecycle.
+2. File Manager — listing, navigation, `RootOperations`, file operations, sorting, conflict resolution, dan selection.
+3. Container — UI, authentication orchestration, Mount/Unmount, state, dan operations.
+4. Settings — preferences, persistence, permission handling, dan configuration.
+5. Vault — Screen, ViewModel, Repository, import, encrypt, decrypt, dan restore.
+6. Shared UI — dialogs, bottom sheets, toolbar, dan reusable components.
+
+Setelah audit, lakukan refactor kecil secara bertahap berdasarkan temuan dan persetujuan user.
+
+Prinsip pelaksanaan:
+- Thin Screen
+- Single Responsibility
+- State Ownership
+- Separation of Concerns
+- Repository untuk persistence dan data access
+- Operations/Use Cases untuk business rules
+- Security Boundary
+- Feature Isolation
+- Reusable Components
+- Behavior Preservation
+
+Hindari Clean Architecture yang berlebihan, Hilt, atau abstraksi yang tidak memberikan manfaat nyata. Pertahankan File Access Architecture 6.6D.
+
+### 6.3 Phase 6.8 — File Manager Upgrade
+
+Dikerjakan setelah Phase 6.7 dan Architecture Improvement selesai.
+
+| Subtask | Deskripsi | Status |
+|---|---|---|
+| 6.8A | Multi-select | NOT STARTED |
+| 6.8B | Batch Operations | NOT STARTED |
+| 6.8C | Search | NOT STARTED |
+| 6.8D | Bookmarks | NOT STARTED |
+
+Setiap subtask harus diselesaikan, diuji, didokumentasikan, dan memiliki checkpoint sebelum melanjutkan ke subtask berikutnya.
+
+### 6.4 Future Roadmap
+
+| Phase | Deskripsi | Status |
+|---|---|---|
+| 6.9 | In-app Viewer: image dengan Coil, video dengan Media3, native PDF, dan custom text viewer | PLANNED |
+| 6.10 | Localization | PLANNED |
+| 6.11 | Network Clients | DEFERRED |
+| 7.0 | Release Preparation: R8, signing, dan Play Store preparation | PLANNED |
+
+### 6.5 Development & Verification Rules
+
+- HANDOFF.md adalah sumber kebenaran utama untuk roadmap, status pekerjaan, dan prosedur handoff.
+- Setiap sesi baru wajib membaca HANDOFF.md sampai selesai dan memeriksa kondisi Git sebelum bekerja.
+- Jangan menganggap roadmap selesai hanya berdasarkan percakapan atau klaim sebelumnya. Verifikasi melalui repository, commit, tag, dan hasil pengujian.
+- Setiap subtask harus memiliki scope yang jelas dan dikerjakan secara terpisah.
+- Lakukan Architecture Check dan Behavior Preservation pada setiap subtask.
+- Build sukses saja tidak cukup. Perilaku aplikasi harus diverifikasi melalui smoke test yang relevan.
+- Jangan melakukan refactor di luar scope tanpa persetujuan.
+- Kerja dilakukan secara lokal di Code On The Go (CoGo). Commit dan push hanya setelah satu subtask selesai atau sesuai permintaan user.
+- Dokumentasikan hasil, status, pengujian, dan pekerjaan pending di HANDOFF.md.
+- Jangan mengubah atau menghapus checkpoint Git yang sudah dibuat.
 ## 7. Diskusi vs Eksekusi
 Diskusi dulu: fitur baru tanpa spec, refactor >5 file, keputusan strategis, perubahan bisa rusak tag
 Langsung eksekusi: bug fix spesifik, refactor 1-3 file, sed/awk mechanical, lanjutan scope yang udah ACC
@@ -275,4 +351,4 @@ Instruksi AI-agnostic. Format: terminal block bash, bukan JSON. Behavior: langsu
 Kalau tools beda, adaptasi, tapi tetap: user eksekusi terminal, AI kasih script + penjelasan.
 
 ---
-Versi: 1.4 - 2026-11-20 (Security Hardening dicatat; versionName 1.6.7 dan versionCode 167 diterapkan; build Free dan Pro berhasil; seluruh smoke test dinyatakan PASS)
+Versi: 1.5 - 2026-11-20 (Master Roadmap, Architecture Improvement, dan Architecture Principle diperbarui)
