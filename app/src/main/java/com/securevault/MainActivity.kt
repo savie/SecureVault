@@ -49,6 +49,7 @@ import com.securevault.ui.screens.VaultScreen
 import com.securevault.ui.theme.SecureVaultTheme
 import com.securevault.ui.viewmodel.FileManagerViewModel
 import com.securevault.utils.ContainerSessionManager
+import com.securevault.utils.BiometricUnlockStore
 import com.securevault.utils.MasterPasswordStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -109,7 +110,7 @@ fun VaultApp() {
         mutableStateOf(MasterPasswordStore.loadOrMigrate(context))
     }
     var biometricEnabled by remember {
-        mutableStateOf(prefs.getBoolean("biometric_enabled", true))
+        mutableStateOf(prefs.getBoolean("biometric_enabled", false) && BiometricUnlockStore.isEnrolled(context))
     }
     var unlocked by remember { mutableStateOf(false) }
 
@@ -240,7 +241,7 @@ fun MainAppScreen(
                 VaultScreen(masterPassword = masterPassword, onLock = onLock, viewModel = vaultViewModel) 
             }
             composable("container") { 
-                ContainerScreen(masterPassword = masterPassword) 
+                ContainerScreen(masterPassword = masterPassword, biometricGloballyEnabled = biometricEnabled)
             }
             composable("file_manager") { 
                 LaunchedEffect(Unit) { fileManagerViewModel.refreshAllPanels() }

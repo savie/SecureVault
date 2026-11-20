@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.securevault.fs.FileAccessManager
 import com.securevault.ui.components.AppTopBar
+import com.securevault.utils.BiometricUnlockStore
 
 data class AutoLockOption(val label: String, val millis: Long)
 
@@ -36,6 +37,8 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE) }
+    var biometricMessage by remember { mutableStateOf<String?>(null) }
+    var biometricEnrolling by remember { mutableStateOf(false) }
     
     val autoLockOptions = listOf(
         AutoLockOption("Off", 0L),
@@ -83,16 +86,40 @@ fun SettingsScreen(
                     Spacer(Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Biometric Unlock", color = Color.White, fontWeight = FontWeight.Bold)
-                        Text("Use fingerprint to unlock vault", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                        Text("Use biometrics across SecureVault, including Containers", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                     }
                     Switch(
-                        checked = biometricEnabled,
-                        onCheckedChange = { onBiometricToggle(it) },
+                        checked = biometricEnabled, enabled = !biometricEnrolling,
+                        onCheckedChange = { enabled ->
+                            if (!enabled) {
+                                BiometricUnlockStore.disable(context)
+                                onBiometricToggle(false)
+                                biometricMessage = "Biometric Unlock disabled."
+                            } else {
+                                val activity = context.findFragmentActivity()
+                                if (activity == null) {
+                                    biometricMessage = "Biometric authentication is unavailable."
+                                } else if (!BiometricUnlockStore.canAuthenticate(context)) {
+                                    biometricMessage = "Set up a strong fingerprint or face unlock first."
+                                } else {
+                                    biometricEnrolling = true
+                                    biometricMessage = "Complete biometric authentication to enable unlock."
+                                    BiometricUnlockStore.enroll(activity) { success, message ->
+                                        biometricEnrolling = false
+                                        onBiometricToggle(success)
+                                        biometricMessage = message
+                                    }
+                                }
+                            }
+                        },
                         colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = Color.White)
                     )
                 }
             }
 
+            biometricMessage?.let {
+                Text(it, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+            }
             Spacer(Modifier.height(16.dp))
 
             Text("Container Auto-Lock", style = MaterialTheme.typography.titleMedium, color = Color.Gray)

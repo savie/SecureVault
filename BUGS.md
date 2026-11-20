@@ -146,3 +146,32 @@ _(Belum ada, silakan tambahkan kalau nemu)_
 - **Critical OOM:** RESOLVED
 - **Format Compatibility:** v1 -> v2 (breaking change, acceptable untuk testing phase)
 - **Next:** Audit bug UI/UX (non-OOM).
+
+---
+
+## 🔐 SECURITY HARDENING — STATUS CHECKPOINT 1.6.7
+
+Track ini terpisah dari daftar bug OOM dan roadmap fitur utama.
+
+### Selesai
+- Master Password disimpan terenkripsi menggunakan AES-256-GCM dan Android Keystore.
+- Biometric Unlock untuk login SecureVault menggunakan dedicated Keystore key dan CryptoObject.
+- Global biometric switch mengendalikan biometric login aplikasi dan Container.
+- Biometric Mount tersedia untuk Container dengan manual password.
+- Password fallback melalui opsi Use Password.
+- Global biometric OFF atau biometric per-Container OFF mengharuskan password.
+- Cancel/Back pada prompt Container tidak membuka Container dan tidak memunculkan password dialog otomatis.
+- Build Free dan Pro serta instalasi APK berhasil pada pengujian sebelumnya.
+
+### PENDING — BIOMETRIC CONTAINER UNMOUNT
+- **Status:** Belum diimplementasikan.
+- **Scope:** Container yang menggunakan manual password.
+- **Expected:** Biometric dapat digunakan untuk proses Unmount dengan mengikuti global biometric switch dan pengaturan biometric per-Container.
+- **Catatan:** Tidak mengubah mekanisme Container encryption/decryption.
+- **Prioritas:** Enhancement keamanan berikutnya.
+
+### VERIFIKASI TAMBAHAN
+- Login biometric SecureVault: Cancel/Back tetap terkunci; PASS pada checkpoint 1.6.7.
+- Pemeriksaan kode menunjukkan ERROR_USER_CANCELED dan ERROR_NEGATIVE_BUTTON tidak memanggil callback unlock.
+
+---

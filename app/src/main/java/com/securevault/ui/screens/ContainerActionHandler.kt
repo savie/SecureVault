@@ -17,6 +17,7 @@ fun handleUnlockLock(
     viewModel: ContainerViewModel,
     context: Context,
     canAuthenticate: Boolean,
+    biometricGloballyEnabled: Boolean,
     activity: FragmentActivity?,
     onNeedPassword: (PasswordAction) -> Unit
 ) {
@@ -35,39 +36,87 @@ fun handleUnlockLock(
             viewModel.mountContainer(item, masterPassword) { }
             return
         }
-        if (item.biometricEnabled && canAuthenticate && activity != null) {
+
+        val useBiometric = biometricGloballyEnabled &&
+            item.biometricEnabled &&
+            canAuthenticate &&
+            activity != null
+
+        if (useBiometric) {
             try {
                 val prompt = BiometricPrompt(
-                    activity, ContextCompat.getMainExecutor(context),
+                    activity!!,
+                    ContextCompat.getMainExecutor(context),
                     object : BiometricPrompt.AuthenticationCallback() {
-                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        override fun onAuthenticationSucceeded(
+                            result: BiometricPrompt.AuthenticationResult
+                        ) {
                             super.onAuthenticationSucceeded(result)
-                            val encrypted = com.securevault.utils.VaultImporterHelper.getEncryptedPassword(context, item.id)
+
+                            val encrypted =
+                                com.securevault.utils.VaultImporterHelper
+                                    .getEncryptedPassword(context, item.id)
+
                             if (encrypted != null) {
                                 val pwd = KeystoreHelper.decrypt(encrypted)
                                 if (pwd != null) {
                                     viewModel.mountContainer(item, pwd) { }
                                     mountedPasswords[item.id] = pwd
-                                } else onNeedPassword(PasswordAction.Mount(item))
-                            } else onNeedPassword(PasswordAction.Mount(item))
+                                } else {
+                                    onNeedPassword(PasswordAction.Mount(item))
+                                }
+                            } else {
+                                onNeedPassword(PasswordAction.Mount(item))
+                            }
                         }
-                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+
+                        override fun onAuthenticationError(
+                            errorCode: Int,
+                            errString: CharSequence
+                        ) {
                             super.onAuthenticationError(errorCode, errString)
-                            onNeedPassword(PasswordAction.Mount(item))
+
+                            when (errorCode) {
+                                BiometricPrompt.ERROR_NEGATIVE_BUTTON -> {
+                                    // User explicitly selected "Use Password".
+                                    onNeedPassword(PasswordAction.Mount(item))
+                                }
+
+                                BiometricPrompt.ERROR_USER_CANCELED,
+                                BiometricPrompt.ERROR_CANCELED -> {
+                                    // Cancel or Back: keep the Container locked.
+                                }
+
+                                else -> {
+                                    // Lockout or another authentication error:
+                                    // allow the existing password fallback.
+                                    onNeedPassword(PasswordAction.Mount(item))
+                                }
+                            }
+                        }
+
+                        override fun onAuthenticationFailed() {
+                            super.onAuthenticationFailed()
+                            // An unsuccessful biometric attempt never unlocks.
                         }
                     }
                 )
+
                 val promptInfo = BiometricPrompt.PromptInfo.Builder()
                     .setTitle("Unlock ${item.name}")
-                    .setSubtitle("Use your fingerprint")
+                    .setSubtitle("Authenticate to unlock this Container")
                     .setNegativeButtonText("Use Password")
-                    .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+                    .setAllowedAuthenticators(
+                        BiometricManager.Authenticators.BIOMETRIC_STRONG
+                    )
                     .build()
+
                 prompt.authenticate(promptInfo)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 onNeedPassword(PasswordAction.Mount(item))
             }
         } else {
+            // Global biometric OFF or per-Container biometric OFF.
             onNeedPassword(PasswordAction.Mount(item))
         }
     }

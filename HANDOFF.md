@@ -203,12 +203,33 @@ Build output: app/build/outputs/apk/{free,pro}/debug/
 - Progress menggunakan indikator loading panel yang sudah tersedia.
 - Smoke test manual Free dan Pro: kompresi, ekstraksi, ZIP, TAR.GZ, serta bentrok nama dinyatakan berhasil.
 
+## 5.3 Security Hardening (Cross-Cutting)
+
+Track ini mencatat penguatan keamanan lintas fitur dan tidak menggantikan urutan roadmap utama.
+
+Selesai:
+- Master Password tersimpan menggunakan AES-256-GCM dan Android Keystore; migrasi dari plaintext.
+- Biometric Unlock untuk login SecureVault menggunakan dedicated Android Keystore key dan CryptoObject.
+- Global biometric master switch berlaku untuk login aplikasi dan Container.
+- Biometric Mount untuk Container yang menggunakan manual password.
+- Password fallback melalui tombol Use Password.
+- Global switch OFF atau biometric per-Container OFF memaksa penggunaan password.
+- Cancel/Back pada prompt Container tetap mempertahankan kondisi terkunci.
+- Build dan instalasi Free serta Pro telah berhasil pada pengujian sebelumnya.
+
+Pending:
+- Biometric Unmount untuk Container dengan manual password.
+- Retest runtime Cancel/Back pada login SecureVault: PASS pada checkpoint 1.6.7.
+
+Di luar scope saat ini:
+- Container yang menggunakan Master Password tetap mengikuti perilaku mount/unmount yang sudah ada.
+
 ## 6. Roadmap (ref, bukan posisi absolut)
 Cek tag terakhir: git tag -l "v1.*" | sort -V | tail -10
 
-Selesai: 1-6.5 core, 6.6A-C refactor, 6.6D-1 sampai 6.6D-3d File Access Architecture, 6.7 Archive ZIP dan TAR.GZ
+Selesai: 1-6.5 core, 6.6A-C refactor, 6.6D-1 sampai 6.6D-3d File Access Architecture, 6.7 Archive ZIP dan TAR.GZ.
 
-Belum:
+Belum (roadmap utama):
 - 6.8: File Manager upgrade (multi-select, batch, search, bookmarks)
 - 6.9: In-app viewer (image Coil, video Media3, pdf native, text custom)
 - 6.10: Localization
@@ -254,4 +275,4 @@ Instruksi AI-agnostic. Format: terminal block bash, bukan JSON. Behavior: langsu
 Kalau tools beda, adaptasi, tapi tetap: user eksekusi terminal, AI kasih script + penjelasan.
 
 ---
-Versi: 1.3 - 2026-11-19 (Fase 6.7 selesai; dokumentasi Archive diperbarui)
+Versi: 1.4 - 2026-11-20 (Security Hardening dicatat; versionName 1.6.7 dan versionCode 167 diterapkan; build Free dan Pro berhasil; seluruh smoke test dinyatakan PASS)

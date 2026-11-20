@@ -30,6 +30,7 @@ sealed class PasswordAction {
 @Composable
 fun ContainerScreen(
     masterPassword: String,
+    biometricGloballyEnabled: Boolean,
     viewModel: ContainerViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -141,6 +142,7 @@ fun ContainerScreen(
                     viewModel = viewModel,
                     context = context,
                     canAuthenticate = canAuthenticate,
+                    biometricGloballyEnabled = biometricGloballyEnabled,
                     activity = activity
                 ) {
                     passwordAction = it
