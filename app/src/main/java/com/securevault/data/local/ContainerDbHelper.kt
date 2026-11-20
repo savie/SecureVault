@@ -43,10 +43,6 @@ class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVau
             db.execSQL("ALTER TABLE containers ADD COLUMN biometricEnabled INTEGER DEFAULT 0")
             db.execSQL("ALTER TABLE containers ADD COLUMN encryptedPassword TEXT")
         }
-        if (oldVersion < 3) {
-            db.execSQL("DROP TABLE IF EXISTS containers")
-            onCreate(db)
-        }
     }
 
     fun insertContainer(
