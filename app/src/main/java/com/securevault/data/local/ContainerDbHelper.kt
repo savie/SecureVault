@@ -100,16 +100,31 @@ class ContainerDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVau
         db.close()
     }
 
-    fun updateMountStatus(id: String, isMounted: Boolean) {
+    fun updateFilePath(id: String, newPath: String): Boolean {
+        val db = writableDatabase
+        val values = ContentValues().apply {
+            put("filePath", newPath)
+        }
+        val rows = db.update(
+            "containers",
+            values,
+            "id = ?",
+            arrayOf(id)
+        )
+        db.close()
+        return rows == 1
+    }
+
+    fun updateMountStatus(id: String, isMounted: Boolean): Boolean {
         val db = writableDatabase
         val values = ContentValues().apply {
             put("isMounted", if (isMounted) 1 else 0)
         }
-        db.update("containers", values, "id = ?", arrayOf(id))
+        val rows = db.update("containers", values, "id = ?", arrayOf(id))
         db.close()
+        return rows == 1
     }
 
-    // FUNGSI BARU: Update size
     fun updateSize(id: String, size: Long) {
         val db = writableDatabase
         val values = ContentValues().apply {

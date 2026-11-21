@@ -167,8 +167,7 @@ fun ContainerScreen(
                         }
                     }
                     is PasswordAction.Unmount -> {
-                        viewModel.unmountContainer(a.item, pwd)
-                        mountedPasswords.remove(a.item.id)
+                        viewModel.unmountContainer(a.item, pwd) { success -> if (success) mountedPasswords.remove(a.item.id) }
                     }
                 }
                 showPasswordDialog = false

@@ -1,6 +1,6 @@
 package com.securevault
-
 import android.content.Context
+
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
@@ -29,67 +29,31 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.ProcessLifecycleOwner
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.securevault.data.repository.ContainerRepository
 import com.securevault.ui.screens.ContainerScreen
 import com.securevault.ui.screens.FileManagerScreen
 import com.securevault.ui.screens.SettingsScreen
 import com.securevault.ui.screens.SetupScreen
 import com.securevault.ui.screens.UnlockScreen
+import com.securevault.ui.screens.ContainerRecoveryScreen
 import com.securevault.ui.screens.VaultScreen
 import com.securevault.ui.theme.SecureVaultTheme
 import com.securevault.ui.viewmodel.FileManagerViewModel
-import com.securevault.utils.ContainerSessionManager
 import com.securevault.utils.BiometricUnlockStore
+import com.securevault.utils.ContainerAutoLockCoordinator
 import com.securevault.utils.MasterPasswordStore
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 data class BottomNavItem(val title: String, val icon: ImageVector, val route: String)
 
 class MainActivity : FragmentActivity() {
-    private var autoLockJob: Job? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        ProcessLifecycleOwner.get().lifecycle.addObserver(
-            LifecycleEventObserver { _, event ->
-                when (event) {
-                    Lifecycle.Event.ON_STOP -> {
-                        val sessions = ContainerSessionManager.getAllSessions()
-                        if (sessions.isNotEmpty()) {
-                            val prefs = getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
-                            val delayMs = prefs.getLong("container_auto_lock_ms", 300_000L)
-                            if (delayMs > 0) {
-                                autoLockJob?.cancel()
-                                autoLockJob = lifecycleScope.launch {
-                                    delay(delayMs)
-                                    val repo = ContainerRepository(applicationContext)
-                                    val locked = repo.autoLockAll()
-                                    if (locked > 0) ContainerSessionManager.triggerAutoLockEvent()
-                                }
-                            }
-                        }
-                    }
-                    Lifecycle.Event.ON_START -> {
-                        autoLockJob?.cancel()
-                        autoLockJob = null
-                    }
-                    else -> {}
-                }
-            }
-        )
+        ContainerAutoLockCoordinator.initialize(applicationContext)
 
         setContent {
             SecureVaultTheme {
@@ -100,7 +64,6 @@ class MainActivity : FragmentActivity() {
         }
     }
 }
-
 @Composable
 fun VaultApp() {
     val context = LocalContext.current
@@ -110,9 +73,13 @@ fun VaultApp() {
         mutableStateOf(MasterPasswordStore.loadOrMigrate(context))
     }
     var biometricEnabled by remember {
-        mutableStateOf(prefs.getBoolean("biometric_enabled", false) && BiometricUnlockStore.isEnrolled(context))
+        mutableStateOf(
+            prefs.getBoolean("biometric_enabled", false) &&
+                BiometricUnlockStore.isEnrolled(context)
+        )
     }
     var unlocked by remember { mutableStateOf(false) }
+    var recoveryComplete by remember { mutableStateOf(false) }
 
     when (val state = passwordState) {
         is MasterPasswordStore.LoadResult.Loaded -> {
@@ -120,15 +87,28 @@ fun VaultApp() {
                 UnlockScreen(
                     savedPassword = state.password,
                     biometricEnabled = biometricEnabled,
-                    onUnlock = { unlocked = true }
+                    onUnlock = {
+                        recoveryComplete = false
+                        unlocked = true
+                    }
+                )
+            } else if (!recoveryComplete) {
+                ContainerRecoveryScreen(
+                    masterPassword = state.password,
+                    onComplete = { recoveryComplete = true }
                 )
             } else {
                 MainAppScreen(
                     masterPassword = state.password,
-                    onLock = { unlocked = false },
+                    onLock = {
+                        recoveryComplete = false
+                        unlocked = false
+                    },
                     onBiometricToggle = { isEnabled ->
                         biometricEnabled = isEnabled
-                        prefs.edit().putBoolean("biometric_enabled", isEnabled).apply()
+                        prefs.edit()
+                            .putBoolean("biometric_enabled", isEnabled)
+                            .apply()
                     },
                     biometricEnabled = biometricEnabled
                 )
@@ -166,7 +146,6 @@ fun VaultApp() {
         }
     }
 }
-
 @Composable
 fun MainAppScreen(
     masterPassword: String, 

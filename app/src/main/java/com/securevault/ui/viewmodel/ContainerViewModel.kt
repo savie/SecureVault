@@ -103,16 +103,17 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun unmountContainer(item: ContainerItem, password: String) {
+    fun unmountContainer(item: ContainerItem, password: String, onComplete: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, message = "Closing container...")
             val success = repository.unmountContainer(item, password)
             if (success) {
-                ContainerSessionManager.removeSession(item.id) // <-- Hapus dari memori
+                onComplete(true)
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container '${item.name}' closed.")
                 refreshContainers()
             } else {
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "❌ Failed to close.")
+                onComplete(false)
             }
         }
     }

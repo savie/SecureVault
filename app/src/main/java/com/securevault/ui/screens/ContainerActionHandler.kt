@@ -24,8 +24,8 @@ fun handleUnlockLock(
     if (isMounted) {
         val cached = mountedPasswords[item.id]
         if (cached != null) {
-            viewModel.unmountContainer(item, cached)
-            mountedPasswords.remove(item.id)
+            viewModel.unmountContainer(item, cached) { success -> if (success) mountedPasswords.remove(item.id) }
+
         } else if (item.usesMasterPassword) {
             viewModel.unmountContainer(item, masterPassword)
         } else {

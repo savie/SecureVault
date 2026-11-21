@@ -224,6 +224,17 @@ Pending:
 Di luar scope saat ini:
 - Container yang menggunakan Master Password tetap mengikuti perilaku mount/unmount yang sudah ada.
 
+## 5.4 Container & Vault Storage (6.7-d5)
+
+- File Vault aktif (`*.svlt`) disimpan di internal storage pada `context.filesDir/vault/`.
+- File Container aktif (`*.svct`) disimpan di internal storage pada `context.filesDir/containers/`.
+- Plaintext Container saat mounted disimpan sementara pada `context.filesDir/containers_temp/{containerId}/`.
+- Migrasi D5.6 hanya memindahkan Container lama yang masih tercatat menggunakan lokasi eksternal. Container yang sudah berada di internal storage dilewati.
+- Migrasi dijalankan melalui startup gate setelah Master Password berhasil dibuka. Migrasi bukan proses ekspor atau pengumpulan semua file `.svlt` dan `.svct`.
+- `/sdcard/SecureVault/` disiapkan sebagai lokasi tujuan fitur Export/Backup untuk salinan file Vault dan Container.
+- Fitur Export/Backup belum diimplementasikan dalam D5 dan tetap menjadi pekerjaan terpisah pada roadmap berikutnya.
+- File aktif internal dan salinan ekspor/backup eksternal memiliki fungsi berbeda. Jangan mengubah lokasi penyimpanan aktif tanpa audit dan persetujuan user.
+
 ## 6. Roadmap Resmi SecureVault
 
 Roadmap ini adalah acuan utama urutan pengembangan SecureVault. Jangan melewati tahapan atau mengubah prioritas tanpa persetujuan user.
@@ -238,7 +249,7 @@ Fokus: menjaga integritas data, keamanan autentikasi, dan stabilitas lifecycle a
 | 6.7-d2 | Master Password Security — menyimpan Master Password menggunakan Android Keystore dan AES-256-GCM | DONE |
 | 6.7-d3 | Biometric Security Hardening — autentikasi biometrik menggunakan dedicated Keystore key dan CryptoObject | DONE |
 | 6.7-d4 | Vault Encryption Integrity — audit dan perbaikan integritas proses enkripsi serta penghapusan source | DONE |
-| 6.7-d5 | Auto-Lock Lifecycle — audit lifecycle observer, Activity recreation, process lifecycle, dan Container Auto-Lock | NOT STARTED |
+| 6.7-d5 | Auto-Lock Lifecycle — lifecycle, atomic packing, recovery, internal storage migration, dan verifikasi Container | DONE |
 
 Catatan:
 - 6.7-d1 sampai 6.7-d3 sudah selesai dan memiliki checkpoint Git masing-masing.
@@ -250,7 +261,19 @@ Catatan:
 - 6.7-d4: pengujian runtime Free dan Pro berhasil. Enkripsi menghapus source, restore berhasil, dan SHA-256 hasil restore identik dengan file asli.
 - 6.7-d4: Free mengembalikan file ke `Download/SecureVault`, sedangkan Pro mengembalikan file ke folder asal sesuai hasil pengujian.
 - 6.7-d4: build `assembleFreeDebug` dan `assembleProDebug` berhasil. Ciphertext tampering belum diuji langsung dengan file yang dimodifikasi; validasi penolakan autentikasi telah diperiksa melalui kode.
-- 6.7-d5 wajib mengaudit registrasi dan pelepasan lifecycle observer di `MainActivity`, Activity recreation, process lifecycle, serta Auto-Lock Container. Pastikan tidak menimbulkan regresi navigasi maupun autentikasi.
+- 6.7-d5.1: `ContainerAutoLockCoordinator` diinisialisasi melalui application context dan mengamati `ProcessLifecycleOwner`. Timer dijadwalkan saat proses masuk background, dibatalkan saat kembali foreground, dan mengikuti preferensi `container_auto_lock_ms`.
+- 6.7-d5.2: `ContainerEngine.packFolder()` menggunakan temporary file, verifikasi hasil enkripsi melalui dekripsi dan pemeriksaan SHA-256, kemudian atomic rename. Container lama tidak dihapus sebelum hasil baru terverifikasi.
+- 6.7-d5.3: Auto-Lock memverifikasi hasil packing, penghapusan plaintext, dan perubahan status database. Jika perubahan database gagal, plaintext dipulihkan dari Container terenkripsi.
+- 6.7-d5.4: Startup Recovery menangani Container yang masih tercatat mounted atau memiliki folder plaintext tertinggal setelah process death. Recovery memerlukan password Container manual atau menggunakan Master Password sesuai konfigurasi. Plaintext tidak dihapus sebelum data terenkripsi berhasil diverifikasi.
+- 6.7-d5.5: Penyimpanan aktif Container baru dipindahkan ke `context.filesDir/containers/`. Folder plaintext sementara berada di `context.filesDir/containers_temp/`.
+- 6.7-d5.6: Migrasi Container lama dari `/sdcard/SecureVault/` ke internal storage berjalan pada startup gate setelah Master Password berhasil dibuka. Migrasi memverifikasi ukuran dan SHA-256, memperbarui database setelah target terverifikasi, lalu menghapus source lama. Container yang sudah berada di internal storage dilewati.
+- 6.7-d5.7: Smoke test Create, Mount, Unmount, Rename, Delete, dan File Manager berhasil pada Free dan Pro setelah migrasi.
+- 6.7-d5.8: `testFreeDebugUnitTest`, `testProDebugUnitTest`, `assembleFreeDebug`, dan `assembleProDebug` berhasil. Task unit test berstatus `NO-SOURCE`, sehingga belum ada unit test otomatis yang dieksekusi.
+- Pengujian Auto-Lock terisolasi berhasil pada Free dan Pro: satu Container aktif berhasil dipacking, diverifikasi, plaintext-nya dihapus, dan status database berubah menjadi locked. Pada pengujian 1 menit, proses packing menambah waktu penyelesaian sekitar 22–23 detik; durasi penguncian total tidak selalu tepat pada detik ke-60.
+- Startup Recovery juga berhasil diuji melalui Force Stop saat Container mounted, kemudian membuka aplikasi kembali dan menyelesaikan recovery menggunakan password Container.
+- Force Stop tidak menjamin callback lifecycle berjalan. Startup Recovery merupakan mekanisme pemulihan ketika proses sebelumnya berakhir tanpa sempat melakukan Auto-Lock.
+- Diagnostic logging yang digunakan selama pengujian telah dihapus dari source produksi. Build Free dan Pro setelah pembersihan logging berhasil.
+- Belum dilakukan commit atau tag untuk 6.7-d5. Seluruh perubahan D5 masih menunggu pemeriksaan akhir dan persetujuan user.
 
 ### 6.2 Architecture Improvement
 
@@ -356,4 +379,4 @@ Instruksi AI-agnostic. Format: terminal block bash, bukan JSON. Behavior: langsu
 Kalau tools beda, adaptasi, tapi tetap: user eksekusi terminal, AI kasih script + penjelasan.
 
 ---
-Versi: 1.5 - 2026-11-20 (Master Roadmap, Architecture Improvement, dan Architecture Principle diperbarui)
+Versi: 1.6 - 2026-11-21 (Phase 6.7-d5 Auto-Lock Lifecycle, Recovery, dan Internal Storage Migration selesai)
