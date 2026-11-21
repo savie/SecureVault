@@ -25,3 +25,17 @@ local.properties
 kondisi_aktual.txt
 struktur.txt
 *.bak
+
+# Local editor backups and temporary work files
+*.bak
+*.bak_*
+*.pre_*
+*.tmp
+*.tmp_*
+.tmp_*
+*.orig
+*~
+*.backup
+*.backup_*
+*~
+*.backup
