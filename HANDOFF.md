@@ -406,8 +406,8 @@ Bagian ini merupakan pembaruan resmi Handoff. Jika terdapat perbedaan dengan roa
 | Pekerjaan | Status |
 |---|---|
 | Architecture Audit | DONE |
-| A1 — File Operation Integrity | NOT STARTED |
-| A2 — Vault Operation Consolidation | NOT STARTED |
+| A1 — File Operation Integrity | DONE |
+| A2 — Vault Operation Consolidation | IN PROGRESS |
 | A3 — Container Session & Security | NOT STARTED |
 | A4 — App Entry & Recovery | NOT STARTED |
 | A5 — Settings Ownership | NOT STARTED |
@@ -545,6 +545,34 @@ Setiap tahap harus selesai dan terverifikasi sebelum melanjutkan ke tahap beriku
 - Hasil verifikasi dicatat dalam Handoff.
 - D5 tidak diubah kecuali ditemukan bug yang terbukti.
 
+### 12.6.1 Implementasi dan Verifikasi A1 — File Operation Integrity
+
+- Status: DONE.
+- Checkpoint commit: `77b24b6`.
+- FileManager menggunakan pemisahan filesystem capability, privileged RootOperations, dan kebijakan operasi tingkat aplikasi.
+- Perbaikan integritas copy, move, delete, rename, dan conflict resolution telah diterapkan.
+- Build dan smoke test Free serta Pro telah berhasil dikonfirmasi user.
+
+### 12.6.2 Implementasi dan Verifikasi A2 — Vault Operation Consolidation
+
+- Status: IN PROGRESS — seluruh smoke test Free dan Pro telah lulus; final audit dan checkpoint Git masih pending.
+- `VaultRepository` menjadi jalur bersama operasi Encrypt dan Decrypt untuk sumber `Uri` maupun `File/path`.
+- Vault Screen dan File Manager menggunakan format `.svlt` yang sama serta penyimpanan metadata yang konsisten.
+- Metadata mencakup original name, MIME type, ukuran, original path, dan original timestamp.
+- Managed `.svlt` menggunakan metadata UUID untuk mengembalikan file ke original path dan timestamp.
+- File `.svlt` eksternal tanpa metadata menggunakan folder pilihan sebagai fallback.
+- Restore menggunakan temporary output, verifikasi hasil, dan strategi penyimpanan melalui `StorageHelper`.
+- Encrypted source baru dihapus setelah hasil restore berhasil diverifikasi. Metadata Vault dibersihkan setelah source internal berhasil dihapus.
+- Perbaikan perbandingan digest menggunakan `contentEquals()` wajib dipertahankan karena memperbaiki verifikasi konten pada jalur filesystem non-root.
+- Format `.svlt`, `CryptoManager`, dan skema database Vault tidak diubah.
+- Pengujian Free: Encrypt dari Vault dan File Manager, Decrypt dari Vault, serta Decrypt melalui File Manager setelah `.svlt` dipindahkan ke shared storage berhasil.
+- Pengujian Pro: seluruh skenario Encrypt dan Decrypt yang sama berhasil.
+- Restore ke original path, pemulihan timestamp, dan penghapusan file `.svlt` internal setelah restore sukses telah dikonfirmasi user.
+- Diagnostic logging `SVLT_DIAG` telah dihapus. Build `assembleFreeDebug` dan `assembleProDebug` setelah penghapusan logging berhasil.
+- Final audit masih mencakup pemeriksaan legacy `VaultImporter.kt`, warning compiler tersisa, dan konsistensi diff.
+- Belum ada commit atau push untuk A2.
+
+
 ## 12.7 Aturan Lokal CoGo dan Git
 
 ATURAN INI WAJIB DIPATUHI:
@@ -585,9 +613,35 @@ AI baru wajib:
 3. Memahami bahwa Architecture Audit sudah selesai dan tidak perlu diulang.
 4. Memahami bahwa file sampah lokal wajib dipertahankan dan dikecualikan dari commit.
 5. Memeriksa Git status tanpa membersihkan file lokal.
-6. Melanjutkan dari A1 jika belum ada pembaruan status yang lebih baru.
+6. Melanjutkan final audit A2 jika checkpoint belum dibuat; setelah A2 selesai, lanjut ke A3.
 7. Tidak langsung patch sebelum memastikan scope dan kondisi kerja.
 
 Versi Handoff: 1.6.8 — 2026-11-21
-Status: Architecture Audit DONE, A1 DONE, A2-A6 NOT STARTED.
+Status: Architecture Audit DONE, A1 DONE, A2 IN PROGRESS, A3-A6 NOT STARTED.
 Target rilis: v1.6.8.
+
+## 12.11 Checkpoint A2 dan Hasil Final Audit Sementara
+
+Checkpoint ini menyimpan implementasi A2 saat ini sebelum perbaikan lanjutan.
+Checkpoint bukan penanda bahwa A2 telah selesai.
+
+Hasil yang sudah dikonfirmasi:
+- Build Free dan Pro berhasil.
+- Smoke test Encrypt dan Decrypt Free serta Pro berhasil.
+- Vault Screen dan File Manager sudah menggunakan VaultRepository.
+- Tidak ditemukan caller aktif VaultImporter di source Kotlin aplikasi.
+- Verifikasi konten SHA-256 menggunakan contentEquals() dan wajib dipertahankan.
+- Format .svlt tidak berubah.
+
+Temuan final audit yang masih harus diselesaikan:
+- Lifecycle InputStream perlu dijamin tertutup jika persiapan enkripsi gagal.
+- Rollback restore pada jalur Java dan Root perlu diperkuat dan diverifikasi.
+- Metadata untuk managed .svlt yang dipindahkan ke shared storage perlu ditangani agar tidak menjadi orphan.
+- Hasil restore perlu membedakan kegagalan menghapus encrypted source setelah output berhasil dipulihkan.
+- Normalisasi ekstensi .svlt perlu konsisten terhadap huruf besar/kecil.
+- Warning dan fungsi pendukung yang tidak terpakai perlu dirapikan setelah caller legacy dieliminasi.
+- Penghapusan metadata database belum memverifikasi jumlah record yang terhapus.
+
+Status A2 tetap IN PROGRESS. Perbaikan temuan di atas dan pengujian regresi Free/Pro wajib dilakukan sebelum A2 dinyatakan DONE.
+VaultImporter.kt belum dihapus pada checkpoint ini.
+Seluruh file backup dan temporary lokal tetap dipertahankan dan tidak boleh masuk commit.

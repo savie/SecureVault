@@ -11,8 +11,8 @@ import com.securevault.utils.ArchiveHelper
 import com.securevault.utils.ArchiveResult
 import com.securevault.utils.FileResult
 import com.securevault.fs.FileAccessManager
-import com.securevault.utils.VaultImporter
-import com.securevault.utils.VaultImportResult
+import com.securevault.data.repository.VaultRepository
+import com.securevault.data.repository.VaultEncryptResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -387,11 +387,16 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 _state.value.copy(rightPanel = panel.copy(isLoading = true))
             }
 
-            val result = VaultImporter.encryptFile(getApplication(), item.path, masterPassword)
+            val result = VaultRepository(getApplication())
+                .encryptFile(item.path, masterPassword)
+
             val message = when (result) {
-                VaultImportResult.SUCCESS -> "Encrypted successfully. Original file removed."
-                VaultImportResult.SOURCE_DELETE_FAILED -> "Encrypted copy saved in Vault, but original could not be deleted. Original kept."
-                VaultImportResult.FAILURE -> "Encryption failed. Original file was kept."
+                VaultEncryptResult.SUCCESS ->
+                    "Encrypted successfully. Original file removed."
+                VaultEncryptResult.SOURCE_DELETE_FAILED ->
+                    "Encrypted copy saved in Vault, but original could not be deleted. Original kept."
+                VaultEncryptResult.FAILURE ->
+                    "Encryption failed. Original file was kept."
             }
 
             loadPanel(isLeft, panel.currentPath)
@@ -402,10 +407,23 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     fun decryptFromVault(item: FileItem, isLeft: Boolean, masterPassword: String) {
         viewModelScope.launch {
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
-            _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
-            
-            withContext(Dispatchers.IO) { VaultImporter.decryptFile(getApplication(), item.path, masterPassword, panel.currentPath) }
+            _state.value = if (isLeft) {
+                _state.value.copy(leftPanel = panel.copy(isLoading = true))
+            } else {
+                _state.value.copy(rightPanel = panel.copy(isLoading = true))
+            }
+
+            val success = VaultRepository(getApplication()).decryptFile(
+                item.path,
+                masterPassword,
+                panel.currentPath
+            )
+
             loadPanel(isLeft, panel.currentPath)
+            publishArchiveMessage(
+                if (success) "Decrypted successfully."
+                else "Decryption failed. The encrypted source was kept."
+            )
         }
     }
 }
