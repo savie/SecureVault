@@ -380,3 +380,214 @@ Kalau tools beda, adaptasi, tapi tetap: user eksekusi terminal, AI kasih script 
 
 ---
 Versi: 1.6 - 2026-11-21 (Phase 6.7-d5 Auto-Lock Lifecycle, Recovery, dan Internal Storage Migration selesai)
+
+---
+
+# 12. SecureVault v1.6.8 — Architecture Refactor
+
+<!-- SECUREVAULT_HANDOFF_UPDATE_V1_6_8 -->
+
+Bagian ini merupakan pembaruan resmi Handoff. Jika terdapat perbedaan dengan roadmap atau aturan lama pada bagian sebelumnya, ketentuan di bagian ini yang berlaku.
+
+## 12.1 Baseline dan Target
+
+- Baseline: `v1.6.7-d5`
+- Baseline commit: `24958362f8a9a05c41be68f43c2140d63260a012`
+- Repository: `https://github.com/savie/SecureVault.git`
+- Target rilis: `v1.6.8`
+- Architecture Audit telah selesai untuk scope yang diperiksa.
+- Audit dilakukan secara read-only terhadap baseline repository.
+- Tidak ada perubahan source code akibat audit.
+- Kondisi lokal sebelumnya telah sesuai dengan baseline repository. Perbedaan yang diketahui adalah file sampah lokal yang belum di-commit dan memang harus dipertahankan.
+- Tidak perlu mengulang Architecture Audit dari awal di lokal.
+
+## 12.2 Status Pekerjaan
+
+| Pekerjaan | Status |
+|---|---|
+| Architecture Audit | DONE |
+| A1 — File Operation Integrity | NOT STARTED |
+| A2 — Vault Operation Consolidation | NOT STARTED |
+| A3 — Container Session & Security | NOT STARTED |
+| A4 — App Entry & Recovery | NOT STARTED |
+| A5 — Settings Ownership | NOT STARTED |
+| A6 — Shared UI Consolidation | NOT STARTED |
+| Release v1.6.8 | NOT STARTED |
+
+Audit selesai bukan berarti implementasi refactor sudah selesai.
+
+## 12.3 Hasil Audit dan Keputusan Arsitektur
+
+### A1 — File Operation Integrity (P1)
+
+Temuan:
+- `FileOperationHelper` menangani copy, move, delete, rename, dan conflict resolution.
+- `FileAccessProvider` juga menyediakan kemampuan operasi filesystem.
+- `FileOperationHelper` belum konsisten menggunakan provider.
+- REPLACE berisiko menghapus tujuan sebelum hasil pengganti terverifikasi.
+- Fallback MOVE berisiko menghapus sumber sebelum tujuan terverifikasi.
+- Verifikasi hasil copy rekursif perlu diperkuat.
+
+Keputusan:
+- `FileAccessProvider` menjadi abstraksi kemampuan filesystem.
+- `RootOperations` tetap menjadi jalur privileged untuk Pro.
+- `FileOperationHelper` tetap menjadi pemilik kebijakan operasi tingkat aplikasi.
+- `StorageHelper` tetap menangani storage, export, restore, dan MediaStore.
+- Jangan membuat helper copy/move baru yang menduplikasi fungsi yang sudah ada.
+
+### A2 — Vault Operation Consolidation (P1)
+
+Temuan:
+- `VaultRepository` dan `VaultImporter` memiliki jalur encrypt/decrypt yang tumpang tindih.
+- File Manager menggunakan sumber File/path.
+- Vault Screen menggunakan sumber Uri.
+
+Keputusan:
+- `VaultRepository` menjadi pintu utama operasi Vault.
+- Kedua jenis sumber harus tetap didukung.
+- `CryptoManager` tetap menjadi pemilik primitive cryptography.
+- `VaultDbHelper` tetap menjadi pemilik akses metadata.
+- `StorageHelper` tetap menangani strategi tujuan restore.
+- Format `.svlt` tidak boleh berubah.
+- Restore harus memverifikasi output sebelum menghapus encrypted source dan metadata.
+
+### A3 — Container Session & Security (P1)
+
+Temuan:
+- `ContainerSessionManager` dan `ContainerScreen` memiliki cache password session yang tumpang tindih.
+- `ContainerSessionManager` menggunakan `mutableMapOf` yang perlu ditinjau untuk concurrency.
+- `ContainerRepository` sudah memiliki Mutex per Container.
+- Sebagian orchestration biometric dan lock/unlock berada di `ContainerActionHandler`.
+
+Keputusan:
+- Satu pemilik session Container.
+- Satu jalur operasi mount/unmount melalui ViewModel dan Repository.
+- Biometric tetap menjadi metode autentikasi, bukan implementasi mount kedua.
+- Manual lock, auto-lock, dan recovery memiliki trigger berbeda, tetapi menggunakan operasi repository yang konsisten.
+- Pertahankan Mutex dan behavior D5.
+- Jangan mengubah recovery D5 tanpa bug yang terbukti.
+
+### A4 — App Entry & Recovery (P2)
+
+Temuan:
+- `VaultApp()` menggabungkan startup, authentication state, recovery state, dan routing.
+- `MasterPasswordStore` dan `BiometricUnlockStore` sudah tersedia.
+
+Keputusan:
+- Pisahkan startup/authentication orchestration dari Composable.
+- Pertahankan kedua store yang sudah ada.
+- Jangan membuat sistem authentication baru.
+
+### A5 — Settings Ownership (P2)
+
+Temuan:
+- `SettingsScreen` dan `ContainerAutoLockCoordinator` membaca konfigurasi `container_auto_lock_ms` secara terpisah.
+
+Keputusan:
+- Satu sumber konfigurasi digunakan oleh Settings dan Auto-Lock Coordinator.
+- Pertahankan preference key dan behavior yang sudah ada.
+- Biometric enrollment tetap menggunakan `BiometricUnlockStore`.
+
+### A6 — Shared UI Consolidation (P2)
+
+Temuan:
+- Password input dan visibility behavior berulang pada SetupScreen, UnlockScreen, CreateContainerDialog, PasswordInputDialog, dan ContainerRecoveryScreen.
+- Validasi password memiliki kebutuhan berbeda antarfitur.
+
+Keputusan:
+- Konsolidasikan visual password field dan visibility behavior yang benar-benar sama.
+- Validasi password tetap mengikuti aturan setiap fitur.
+- Jangan membuat satu dialog universal untuk semua kebutuhan.
+- Gunakan kembali komponen UI yang sudah tersedia.
+
+## 12.4 Target Kepemilikan Domain
+
+| Domain | Pemilik utama |
+|---|---|
+| Authentication state | Satu pemilik startup/authentication state |
+| Master Password storage | `MasterPasswordStore` |
+| Biometric authentication | `BiometricUnlockStore` |
+| File operation policy | `FileOperationHelper` |
+| Filesystem capability | `FileAccessProvider` |
+| Privileged filesystem | `RootOperations` |
+| Vault operations | `VaultRepository` |
+| Cryptography | `CryptoManager` |
+| Vault metadata | `VaultDbHelper` |
+| Container operations | `ContainerRepository` |
+| Container session | `ContainerSessionManager` |
+| Storage destination | `StorageHelper` |
+| Settings configuration | Satu sumber konfigurasi |
+| Shared password UI | Komponen password bersama |
+| Navigation | App navigation |
+
+ViewModel menjadi penghubung state dan operasi untuk UI. Screen berfokus pada tampilan dan interaksi UI.
+
+## 12.5 Urutan Implementasi
+
+1. A1 — File Operation Integrity.
+2. A2 — Vault Operation Consolidation.
+3. A3 — Container Session & Security.
+4. A4 — App Entry & Recovery.
+5. A5 — Settings Ownership.
+6. A6 — Shared UI Consolidation.
+
+Setiap tahap harus selesai dan terverifikasi sebelum melanjutkan ke tahap berikutnya.
+
+## 12.6 Aturan Verifikasi Setiap Tahap
+
+- Tidak ada implementasi duplikat yang tersisa.
+- Tidak ada pemanggil lama yang tertinggal.
+- Tidak ada perubahan format `.svlt` atau `.svct`.
+- Tidak ada perubahan behavior Free/Pro yang tidak disengaja.
+- Build Free dan Pro berhasil.
+- Pengujian operasi terkait berhasil.
+- Git diff hanya berisi perubahan subtask yang sedang dikerjakan.
+- Hasil verifikasi dicatat dalam Handoff.
+- D5 tidak diubah kecuali ditemukan bug yang terbukti.
+
+## 12.7 Aturan Lokal CoGo dan Git
+
+ATURAN INI WAJIB DIPATUHI:
+
+- Pengerjaan dilakukan secara lokal di Code On The Go (CoGo).
+- Repository GitHub menjadi baseline dan tidak disentuh selama implementasi lokal.
+- File sampah lokal yang belum di-commit memang sengaja dipertahankan.
+- File sampah tersebut tidak boleh dihapus, dibersihkan, dipindahkan, atau diubah.
+- File sampah lokal tidak boleh masuk staging maupun commit.
+- Jangan menggunakan `git add .` atau `git add -A`.
+- Stage hanya file yang memang termasuk pekerjaan subtask.
+- Sebelum commit, periksa `git status --short` dan `git diff --cached`.
+- Jangan mengulang audit arsitektur yang sudah selesai. Pemeriksaan Git hanya untuk menjaga baseline dan melindungi file lokal.
+- Tidak ada commit, tag, atau push tanpa persetujuan user.
+
+## 12.8 Release Policy
+
+- Target akhir adalah satu rilis `v1.6.8`.
+- A1 sampai A6 merupakan satu rangkaian Architecture Refactor.
+- Commit checkpoint per subtask boleh dilakukan setelah pekerjaan selesai, terverifikasi, dan disetujui user.
+- Tidak perlu membuat tag rilis untuk masing-masing A1 sampai A6.
+- Tag `v1.6.8` hanya dibuat setelah seluruh tahap selesai dan verifikasi lulus.
+- Tidak boleh menyatakan v1.6.8 selesai sebelum seluruh pekerjaan dan pengujian dikonfirmasi user.
+
+## 12.9 Koreksi Status Baseline D5
+
+Ketentuan ini menggantikan catatan lama yang menyebut D5 masih menunggu pemeriksaan akhir.
+
+- Baseline pekerjaan v1.6.8 adalah `v1.6.7-d5`, commit `24958362f8a9a05c41be68f43c2140d63260a012`.
+- D5 diperlakukan sebagai baseline selesai.
+- Jangan mengutak-atik implementasi D5 tanpa bug yang terbukti dan persetujuan user.
+
+## 12.10 Handoff untuk Sesi Berikutnya
+
+AI baru wajib:
+1. Membaca seluruh HANDOFF.md.
+2. Mengonfirmasi baseline dan merangkum 3 hal penting: environment CoGo, workflow patch/verifikasi, serta roadmap v1.6.8.
+3. Memahami bahwa Architecture Audit sudah selesai dan tidak perlu diulang.
+4. Memahami bahwa file sampah lokal wajib dipertahankan dan dikecualikan dari commit.
+5. Memeriksa Git status tanpa membersihkan file lokal.
+6. Melanjutkan dari A1 jika belum ada pembaruan status yang lebih baru.
+7. Tidak langsung patch sebelum memastikan scope dan kondisi kerja.
+
+Versi Handoff: 1.6.8 — 2026-11-21
+Status: Architecture Audit DONE, A1 DONE, A2-A6 NOT STARTED.
+Target rilis: v1.6.8.

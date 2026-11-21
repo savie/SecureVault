@@ -61,6 +61,19 @@ fun FilePanel(
         )
 
         if (panelState.isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Color.White)
+        panelState.message?.let { message ->
+            val messageColor = when {
+                message.startsWith("❌") -> Color(0xFFEF5350)
+                message.startsWith("✓") -> Color(0xFF81C784)
+                else -> Color(0xFFFFB74D)
+            }
+            Text(
+                text = message,
+                color = messageColor,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)
+            )
+        }
 
         if (panelState.items.isEmpty() && !panelState.isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Empty or denied", color = Color.Gray) }

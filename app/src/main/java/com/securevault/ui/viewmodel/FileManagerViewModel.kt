@@ -87,11 +87,11 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         refreshPanel(false)
     }
 
-    fun loadPanel(isLeft: Boolean, path: String) {
+    fun loadPanel(isLeft: Boolean, path: String, message: String? = null) {
         val cleanPath = path.replace("//", "/")
         viewModelScope.launch {
             val currentPanel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
-            val newPanel = currentPanel.copy(isLoading = true, currentPath = cleanPath, message = null)
+            val newPanel = currentPanel.copy(isLoading = true, currentPath = cleanPath, message = message)
             _state.value = if (isLeft) _state.value.copy(leftPanel = newPanel) else _state.value.copy(rightPanel = newPanel)
 
             val items = withContext(Dispatchers.IO) {
@@ -220,11 +220,12 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     fun executePaste() {
         val pending = _state.value.pendingPaste ?: return
         val action = pending.action
-        val targetPanelPath = pending.targetDir.absolutePath
+        val targetPath = pending.targetDir.absolutePath
         val isLeftTarget = pending.isLeftTarget
 
         viewModelScope.launch {
             _state.value = _state.value.copy(pendingPaste = null)
+            val otherPath = if (isLeftTarget) _state.value.rightPanel.currentPath else _state.value.leftPanel.currentPath
             val targetPanel = if (isLeftTarget) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (isLeftTarget) _state.value.copy(leftPanel = targetPanel.copy(isLoading = true)) else _state.value.copy(rightPanel = targetPanel.copy(isLoading = true))
 
@@ -235,38 +236,47 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
 
-            when (result) {
-                is FileResult.Success -> {
-                    loadPanel(isLeftTarget, targetPanelPath)
-                    loadPanel(!isLeftTarget, if (isLeftTarget) _state.value.rightPanel.currentPath else _state.value.leftPanel.currentPath)
-                }
-                is FileResult.Conflict -> {
-                    _state.value = _state.value.copy(
-                        pendingConflict = PendingConflict(pending.sourceFile, pending.targetDir, action, isLeftTarget)
-                    )
-                    loadPanel(isLeftTarget, targetPanelPath)
-                }
-                is FileResult.Failure -> loadPanel(isLeftTarget, targetPanelPath)
+            val operationName = if (action == ClipboardAction.COPY) "Copy" else "Move"
+            val message = when (result) {
+                is FileResult.Success -> "✓ $operationName completed."
+                is FileResult.Conflict -> "⚠️ Destination conflict. Choose how to continue."
+                is FileResult.Failure -> "❌ $operationName failed."
             }
-        }
-    }
 
+            if (result is FileResult.Conflict) {
+                _state.value = _state.value.copy(
+                    pendingConflict = PendingConflict(pending.sourceFile, pending.targetDir, action, isLeftTarget)
+                )
+            }
+
+            loadPanel(isLeftTarget, targetPath, message)
+            if (result is FileResult.Success) loadPanel(!isLeftTarget, otherPath)
+    }
+    }
     fun resolveConflict(action: ConflictAction) {
         val conflict = _state.value.pendingConflict ?: return
         viewModelScope.launch {
             _state.value = _state.value.copy(pendingConflict = null)
+            val otherPath = if (conflict.isLeftTarget) _state.value.rightPanel.currentPath else _state.value.leftPanel.currentPath
             val targetPanel = if (conflict.isLeftTarget) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (conflict.isLeftTarget) _state.value.copy(leftPanel = targetPanel.copy(isLoading = true)) else _state.value.copy(rightPanel = targetPanel.copy(isLoading = true))
 
-            withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 when (conflict.action) {
                     ClipboardAction.COPY -> FileOperationHelper.copy(conflict.sourceFile, conflict.destDir, action)
                     ClipboardAction.MOVE -> FileOperationHelper.move(conflict.sourceFile, conflict.destDir, action)
                 }
             }
 
-            loadPanel(conflict.isLeftTarget, targetPanel.currentPath)
-            loadPanel(!conflict.isLeftTarget, if (conflict.isLeftTarget) _state.value.rightPanel.currentPath else _state.value.leftPanel.currentPath)
+            val operationName = if (conflict.action == ClipboardAction.COPY) "Copy" else "Move"
+            val message = when (result) {
+                is FileResult.Success -> "✓ $operationName completed."
+                is FileResult.Conflict -> "⚠️ Destination conflict remains."
+                is FileResult.Failure -> "❌ $operationName failed."
+            }
+
+            loadPanel(conflict.isLeftTarget, targetPanel.currentPath, message)
+            if (result is FileResult.Success) loadPanel(!conflict.isLeftTarget, otherPath)
         }
     }
 
@@ -275,39 +285,34 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     fun deleteFile(item: FileItem, isLeft: Boolean) {
         if (isVirtualContainer(item)) {
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
-            _state.value = if (isLeft) {
-                _state.value.copy(leftPanel = panel.copy(message = "❌ Cannot delete mounted container. Lock it first from Container tab."))
-            } else {
-                _state.value.copy(rightPanel = panel.copy(message = "❌ Cannot delete mounted container. Lock it first from Container tab."))
-            }
+            val message = "❌ Cannot delete mounted container. Lock it first from Container tab."
+            _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(message = message)) else _state.value.copy(rightPanel = panel.copy(message = message))
             return
         }
         viewModelScope.launch {
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
-            withContext(Dispatchers.IO) { FileOperationHelper.delete(File(item.path)) }
-            loadPanel(isLeft, panel.currentPath)
+            val success = withContext(Dispatchers.IO) { FileOperationHelper.delete(File(item.path)) }
+            val message = if (success) "✓ Delete completed." else "❌ Delete failed."
+            loadPanel(isLeft, panel.currentPath, message)
         }
     }
 
     fun renameFile(item: FileItem, newName: String, isLeft: Boolean) {
         if (isVirtualContainer(item)) {
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
-            _state.value = if (isLeft) {
-                _state.value.copy(leftPanel = panel.copy(message = "❌ Cannot rename mounted container. Rename it from Container tab."))
-            } else {
-                _state.value.copy(rightPanel = panel.copy(message = "❌ Cannot rename mounted container. Rename it from Container tab."))
-            }
+            val message = "❌ Cannot rename mounted container. Rename it from Container tab."
+            _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(message = message)) else _state.value.copy(rightPanel = panel.copy(message = message))
             return
         }
         viewModelScope.launch {
             val panel = if (isLeft) _state.value.leftPanel else _state.value.rightPanel
             _state.value = if (isLeft) _state.value.copy(leftPanel = panel.copy(isLoading = true)) else _state.value.copy(rightPanel = panel.copy(isLoading = true))
-            withContext(Dispatchers.IO) { FileOperationHelper.rename(File(item.path), newName) }
-            loadPanel(isLeft, panel.currentPath)
+            val success = withContext(Dispatchers.IO) { FileOperationHelper.rename(File(item.path), newName) }
+            val message = if (success) "✓ Rename completed." else "❌ Rename failed."
+            loadPanel(isLeft, panel.currentPath, message)
         }
     }
-
     fun clearArchiveMessage() {
         _state.value = _state.value.copy(archiveMessage = null)
     }
