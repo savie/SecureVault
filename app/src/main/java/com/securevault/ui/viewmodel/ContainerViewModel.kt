@@ -93,7 +93,6 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
             _uiState.value = _uiState.value.copy(isLoading = true, message = "Opening container...")
             val mountDir = repository.mountContainer(item, password)
             if (mountDir != null) {
-                ContainerSessionManager.addSession(item.id, password) // <-- Simpan password di memori
                 _uiState.value = _uiState.value.copy(isLoading = false, message = "✅ Container '${item.name}' opened!")
                 refreshContainers()
                 onSuccess(mountDir)

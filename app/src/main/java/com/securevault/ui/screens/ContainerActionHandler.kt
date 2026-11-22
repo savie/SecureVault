@@ -7,13 +7,13 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.securevault.data.local.ContainerItem
 import com.securevault.ui.viewmodel.ContainerViewModel
+import com.securevault.utils.ContainerSessionManager
 import com.securevault.utils.KeystoreHelper
 
 fun handleUnlockLock(
     item: ContainerItem,
     isMounted: Boolean,
     masterPassword: String,
-    mountedPasswords: MutableMap<String, String>,
     viewModel: ContainerViewModel,
     context: Context,
     canAuthenticate: Boolean,
@@ -22,9 +22,9 @@ fun handleUnlockLock(
     onNeedPassword: (PasswordAction) -> Unit
 ) {
     if (isMounted) {
-        val cached = mountedPasswords[item.id]
+        val cached = ContainerSessionManager.getPassword(item.id)
         if (cached != null) {
-            viewModel.unmountContainer(item, cached) { success -> if (success) mountedPasswords.remove(item.id) }
+            viewModel.unmountContainer(item, cached)
 
         } else if (item.usesMasterPassword) {
             viewModel.unmountContainer(item, masterPassword)
@@ -61,7 +61,6 @@ fun handleUnlockLock(
                                 val pwd = KeystoreHelper.decrypt(encrypted)
                                 if (pwd != null) {
                                     viewModel.mountContainer(item, pwd) { }
-                                    mountedPasswords[item.id] = pwd
                                 } else {
                                     onNeedPassword(PasswordAction.Mount(item))
                                 }

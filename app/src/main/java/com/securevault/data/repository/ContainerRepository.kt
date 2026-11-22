@@ -372,6 +372,7 @@ class ContainerRepository(private val context: Context) {
                     return@withLock null
                 }
 
+                ContainerSessionManager.addSession(item.id, password)
                 tempDir
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -417,33 +418,38 @@ class ContainerRepository(private val context: Context) {
                     return@withLock false
                 }
 
-                // Plaintext must be completely removed before DB reports locked.
-                if (tempDir.exists()) {
-                    tempDir.deleteRecursively()
-                    if (tempDir.exists()) return@withLock false
-                }
-
+                // The encrypted archive is complete and verified.
+                // Persist the locked state before deleting plaintext.
                 if (!dbHelper.updateMountStatus(item.id, false)) {
-                    // Restore the mounted plaintext if DB transition fails.
-                    val restored = ContainerEngine.unpackContainer(
-                        containerFile,
-                        tempDir,
-                        password
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Database lock transition failed; plaintext retained: ${item.id}"
                     )
-                    if (!restored) {
-                        android.util.Log.e(
-                            "SecureVault",
-                            "Failed to restore Container plaintext after DB update failure: ${item.id}"
-                        )
-                    }
                     return@withLock false
                 }
 
                 dbHelper.updateSize(item.id, containerFile.length())
                 ContainerSessionManager.removeSession(item.id)
+
+                // If cleanup is interrupted, startup recovery will verify
+                // the encrypted archive and remove the remaining plaintext.
+                if (tempDir.exists()) {
+                    val deleted = tempDir.deleteRecursively()
+                    if (!deleted || tempDir.exists()) {
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Container is locked; plaintext cleanup is pending: ${item.id}"
+                        )
+                    }
+                }
+
                 true
             } catch (e: Exception) {
-                e.printStackTrace()
+                android.util.Log.e(
+                    "ContainerRepository",
+                    "Container unmount failed: ${item.id}",
+                    e
+                )
                 false
             }
         }
@@ -489,6 +495,8 @@ class ContainerRepository(private val context: Context) {
                 val hasPlaintext = tempDir.exists()
 
                 if (current.isMounted && hasPlaintext) {
+                    // A mounted container still has its complete plaintext.
+                    // Pack it before changing the persistent mount state.
                     if (!tempDir.isDirectory) return@withLock false
 
                     if (!ContainerEngine.packFolder(
@@ -499,12 +507,9 @@ class ContainerRepository(private val context: Context) {
                     ) {
                         return@withLock false
                     }
-
-                    tempDir.deleteRecursively()
-                    if (tempDir.exists()) return@withLock false
                 } else {
-                    // Verify the encrypted Container without touching the
-                    // original plaintext or encrypted file.
+                    // A locked container may have leftover plaintext from
+                    // an interrupted cleanup. Verify the archive first.
                     val verifyDir = File(
                         context.cacheDir,
                         "container_recovery_verify_${item.id}"
@@ -530,39 +535,35 @@ class ContainerRepository(private val context: Context) {
                     if (!verified || verifyDir.exists()) {
                         return@withLock false
                     }
-
-                    // A stale folder with DB status=false may be an
-                    // interrupted, incomplete mount. Never pack it.
-                    if (!current.isMounted && hasPlaintext) {
-                        tempDir.deleteRecursively()
-                        if (tempDir.exists()) return@withLock false
-                    }
                 }
 
+                // Do not remove plaintext until the locked state is durable.
                 if (!dbHelper.updateMountStatus(current.id, false)) {
-                    if (current.isMounted && hasPlaintext) {
-                        val restored = ContainerEngine.unpackContainer(
-                            containerFile,
-                            tempDir,
-                            password
-                        )
-
-                        if (!restored) {
-                            android.util.Log.e(
-                                "SecureVault",
-                                "Recovery rollback failed for Container: ${current.id}"
-                            )
-                        }
-                    }
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Recovery database transition failed; plaintext retained: ${current.id}"
+                    )
                     return@withLock false
                 }
 
                 dbHelper.updateSize(current.id, containerFile.length())
                 ContainerSessionManager.removeSession(current.id)
+
+                if (tempDir.exists()) {
+                    val deleted = tempDir.deleteRecursively()
+                    if (!deleted || tempDir.exists()) {
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Recovery verified archive but plaintext cleanup is pending: ${current.id}"
+                        )
+                        return@withLock false
+                    }
+                }
+
                 true
             } catch (e: Exception) {
                 android.util.Log.e(
-                    "SecureVault",
+                    "ContainerRepository",
                     "Container recovery failed: ${item.id}",
                     e
                 )
@@ -573,13 +574,9 @@ class ContainerRepository(private val context: Context) {
 
     suspend fun autoLockAll(): Int = withContext(Dispatchers.IO) {
         var lockedCount = 0
-        val sessions = ContainerSessionManager.getAllSessions()
         val containers = dbHelper.getAllContainers()
 
         for (container in containers) {
-            if (!container.isMounted) continue
-            val password = sessions[container.id] ?: continue
-
             val locked = lockFor(container.id).withLock {
                 try {
                     val current = dbHelper.getAllContainers()
@@ -591,39 +588,56 @@ class ContainerRepository(private val context: Context) {
                         return@withLock false
                     }
 
-                    val tempDir = File(context.filesDir, "containers_temp/${container.id}")
+                    val password = ContainerSessionManager.getPassword(container.id)
+                        ?: return@withLock false
+
+                    val tempDir = File(
+                        context.filesDir,
+                        "containers_temp/${container.id}"
+                    )
+
                     if (!tempDir.isDirectory) return@withLock false
 
                     val containerFile = File(current.filePath)
-                    if (!ContainerEngine.packFolder(tempDir, containerFile, password)) {
+
+                    if (!ContainerEngine.packFolder(
+                            tempDir,
+                            containerFile,
+                            password
+                        )
+                    ) {
                         return@withLock false
                     }
 
-                    if (tempDir.exists()) {
-                        val deleted = tempDir.deleteRecursively()
-                        if (!deleted || tempDir.exists()) return@withLock false
-                    }
-
+                    // Persist Locked before deleting the plaintext directory.
                     if (!dbHelper.updateMountStatus(container.id, false)) {
-                        val restored = ContainerEngine.unpackContainer(
-                            containerFile,
-                            tempDir,
-                            password
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Auto-lock database transition failed; plaintext retained: ${container.id}"
                         )
-                        if (!restored) {
-                            android.util.Log.e(
-                                "ContainerRepository",
-                                "CRITICAL: failed to restore plaintext after database update failure"
-                            )
-                        }
                         return@withLock false
                     }
 
                     dbHelper.updateSize(container.id, containerFile.length())
                     ContainerSessionManager.removeSession(container.id)
+
+                    if (tempDir.exists()) {
+                        val deleted = tempDir.deleteRecursively()
+                        if (!deleted || tempDir.exists()) {
+                            android.util.Log.e(
+                                "ContainerRepository",
+                                "Auto-locked; plaintext cleanup is pending: ${container.id}"
+                            )
+                        }
+                    }
+
                     true
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Auto-lock failed: ${container.id}",
+                        e
+                    )
                     false
                 }
             }
@@ -633,4 +647,5 @@ class ContainerRepository(private val context: Context) {
 
         lockedCount
     }
+
 }

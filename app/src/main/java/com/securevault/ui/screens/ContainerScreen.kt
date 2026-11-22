@@ -46,7 +46,6 @@ fun ContainerScreen(
     var selectedContainer by remember { mutableStateOf<ContainerItem?>(null) }
     var passwordAction by remember { mutableStateOf<PasswordAction?>(null) }
 
-    val mountedPasswords = remember { mutableStateMapOf<String, String>() }
 
     val activity = remember(context) { context.findFragmentActivity() }
     val canAuthenticate = BiometricManager.from(context)
@@ -138,7 +137,6 @@ fun ContainerScreen(
                     item = item,
                     isMounted = item.isMounted,
                     masterPassword = masterPassword,
-                    mountedPasswords = mountedPasswords,
                     viewModel = viewModel,
                     context = context,
                     canAuthenticate = canAuthenticate,
@@ -162,12 +160,10 @@ fun ContainerScreen(
             onConfirm = { pwd ->
                 when (val a = passwordAction!!) {
                     is PasswordAction.Mount -> {
-                        viewModel.mountContainer(a.item, pwd) { _ ->
-                            mountedPasswords[a.item.id] = pwd
-                        }
+                        viewModel.mountContainer(a.item, pwd) { }
                     }
                     is PasswordAction.Unmount -> {
-                        viewModel.unmountContainer(a.item, pwd) { success -> if (success) mountedPasswords.remove(a.item.id) }
+                        viewModel.unmountContainer(a.item, pwd)
                     }
                 }
                 showPasswordDialog = false

@@ -1,11 +1,12 @@
 package com.securevault.utils
 
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
 object ContainerSessionManager {
     // Menyimpan password container yang lagi kebuka di memori
-    private val passwords = mutableMapOf<String, String>()
+    private val passwords = ConcurrentHashMap<String, String>()
     
     // Event buat ngasih tau UI kalo ada auto-lock
     private val _autoLockTrigger = MutableSharedFlow<Unit>()
