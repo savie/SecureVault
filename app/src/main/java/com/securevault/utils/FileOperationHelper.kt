@@ -53,10 +53,6 @@ object FileOperationHelper {
             val sourcePath = source.canonicalPath
             var destination = File(destinationDir, source.name)
 
-            if (sourcePath == destination.canonicalPath) {
-                return FileResult.Success
-            }
-
             if (source.isDirectory &&
                 destination.canonicalPath.startsWith(sourcePath + File.separator)
             ) {
@@ -67,7 +63,12 @@ object FileOperationHelper {
                 when (conflictAction) {
                     null -> return FileResult.Conflict
                     ConflictAction.SKIP -> return FileResult.Success
-                    ConflictAction.REPLACE -> Unit
+                    ConflictAction.REPLACE -> {
+                        // Source and destination are the same file: nothing to replace.
+                        if (sourcePath == destination.canonicalPath) {
+                            return FileResult.Success
+                        }
+                    }
                     ConflictAction.KEEP_BOTH -> {
                         val extension = source.name.substringAfterLast(".", "")
                         val baseName = if (extension.isEmpty()) {

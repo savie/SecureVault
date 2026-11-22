@@ -12,6 +12,7 @@ import com.securevault.utils.ArchiveResult
 import com.securevault.utils.FileResult
 import com.securevault.fs.FileAccessManager
 import com.securevault.data.repository.VaultRepository
+import com.securevault.data.repository.VaultDecryptResult
 import com.securevault.data.repository.VaultEncryptResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -413,17 +414,24 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 _state.value.copy(rightPanel = panel.copy(isLoading = true))
             }
 
-            val success = VaultRepository(getApplication()).decryptFile(
+            val result = VaultRepository(getApplication()).decryptFile(
                 item.path,
                 masterPassword,
                 panel.currentPath
             )
 
             loadPanel(isLeft, panel.currentPath)
-            publishArchiveMessage(
-                if (success) "Decrypted successfully."
-                else "Decryption failed. The encrypted source was kept."
-            )
+            val message = when (result) {
+                VaultDecryptResult.SUCCESS ->
+                    "Decrypted successfully."
+                VaultDecryptResult.SOURCE_DELETE_FAILED ->
+                    "File restored successfully, but the encrypted source could not be deleted."
+                VaultDecryptResult.METADATA_DELETE_FAILED ->
+                    "File restored successfully, but Vault metadata could not be deleted."
+                VaultDecryptResult.FAILURE ->
+                    "Decryption failed. The encrypted source was kept."
+            }
+            publishArchiveMessage(message)
         }
     }
 }

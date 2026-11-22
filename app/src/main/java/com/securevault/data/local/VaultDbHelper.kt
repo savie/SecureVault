@@ -109,10 +109,10 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
         }
     }
 
-    fun deleteFile(uuid: String) {
+    fun deleteFile(uuid: String): Boolean {
         val db = writableDatabase
         try {
-            db.delete("vault_files", "uuid = ?", arrayOf(uuid))
+            return db.delete("vault_files", "uuid = ?", arrayOf(uuid)) > 0
         } finally {
             db.close()
         }

@@ -77,23 +77,57 @@ object StorageHelper {
         destination: File,
         originalTimestamp: Long
     ): Boolean {
-        val parent = destination.parentFile
-        if (parent == null) {
-            return false
-        }
+        val parent = destination.parentFile ?: return false
 
         val token = UUID.randomUUID().toString()
         val staging = File(parent, ".${destination.name}.restore-$token.tmp")
         val backup = File(parent, ".${destination.name}.backup-$token")
+
         var backupCreated = false
         var destinationChanged = false
+        var originalDestinationLength = -1L
+        var originalDestinationDigest: ByteArray? = null
         var stage = "prepare"
 
-        fun rollback() {
-            if (destinationChanged && !destination.delete()) {
+        fun rollback(): Boolean {
+            var restored = true
+
+            if (destinationChanged) {
+                if (destination.exists() &&
+                    !destination.delete() &&
+                    destination.exists()
+                ) {
+                    restored = false
+                }
             }
-            if (backupCreated && !backup.renameTo(destination)) {
+
+            if (backupCreated) {
+                if (!destination.exists()) {
+                    if (!backup.renameTo(destination)) {
+                        restored = false
+                    }
+                }
+
+                if (!destination.isFile || backup.exists()) {
+                    restored = false
+                } else {
+                    try {
+                        val digestMatches =
+                            destination.length() == originalDestinationLength &&
+                            digest(destination).contentEquals(
+                                originalDestinationDigest ?: ByteArray(0)
+                            )
+
+                        if (!digestMatches) restored = false
+                    } catch (_: Exception) {
+                        restored = false
+                    }
+                }
+            } else if (destinationChanged && destination.exists()) {
+                restored = false
             }
+
+            return restored
         }
 
         try {
@@ -115,30 +149,41 @@ object StorageHelper {
                 if (!staging.setLastModified(originalTimestamp)) {
                     return false
                 }
-                val actual = staging.lastModified()
-                if (Math.abs(actual - originalTimestamp) > 1000L) {
+
+                if (Math.abs(staging.lastModified() - originalTimestamp) > 1000L) {
                     return false
                 }
             }
 
             stage = "backup_existing_destination"
             if (destination.exists()) {
-                if (!destination.renameTo(backup)) {
+                if (!destination.isFile) {
                     return false
                 }
-                backupCreated = true
+
+                originalDestinationLength = destination.length()
+                originalDestinationDigest = digest(destination)
+
+                val renamed = destination.renameTo(backup)
+                backupCreated = backup.isFile && !destination.exists()
+
+                if (!renamed || !backupCreated) {
+                    if (backupCreated) rollback()
+                    return false
+                }
             }
 
             stage = "rename_staging_to_destination"
-            if (!staging.renameTo(destination)) {
+            val moved = staging.renameTo(destination)
+            destinationChanged = destination.isFile && !staging.exists()
+
+            if (!moved || !destinationChanged) {
                 rollback()
                 return false
             }
-            destinationChanged = true
 
             stage = "verify_final_content"
-            val contentValid = sameContent(source, destination)
-            if (!contentValid) {
+            if (!sameContent(source, destination)) {
                 rollback()
                 return false
             }
@@ -153,12 +198,14 @@ object StorageHelper {
                 return false
             }
 
-            if (backupCreated && !backup.delete()) {
-            }
+            // A verified restore is successful even if backup cleanup fails.
+            if (backupCreated) backup.delete()
 
             return true
         } catch (e: Exception) {
-            if (backupCreated || destinationChanged) rollback()
+            if (backupCreated || destinationChanged) {
+                rollback()
+            }
             return false
         } finally {
             staging.delete()
@@ -173,8 +220,10 @@ object StorageHelper {
         val root = FileAccessManager.rootOperations
         val parent = destination.parent ?: return false
         val token = UUID.randomUUID().toString()
+
         val staging = "$parent/.${destination.name}.restore-$token.tmp"
         val backup = "$parent/.${destination.name}.backup-$token"
+        val checksum = "$parent/.${destination.name}.backup-$token.sha256"
 
         if (!root.execAsRoot("mkdir -p ${shellQuote(parent)}")) return false
 
@@ -182,70 +231,177 @@ object StorageHelper {
         val destinationPath = shellQuote(destination.absolutePath)
         val stagingPath = shellQuote(staging)
         val backupPath = shellQuote(backup)
+        val checksumPath = shellQuote(checksum)
+
+        var backupCreated = false
+        var destinationChanged = false
 
         fun cleanupStage() {
             root.execAsRoot("rm -f $stagingPath")
         }
 
-        fun applyTimestamp(path: String): Boolean {
-            if (originalTimestamp <= 0L) return true
-            val seconds = originalTimestamp / 1000L
-            val quotedPath = shellQuote(path)
-            val touch = "touch -t $(date -d @$seconds +%Y%m%d%H%M.%S) $quotedPath"
-            val verify = "test \"$(stat -c %Y $quotedPath)\" = '$seconds'"
-            return root.execAsRoot(touch) && root.execAsRoot(verify)
-        }
-
-        if (!root.copyAsRoot(source.absolutePath, staging) ||
-            !root.execAsRoot("cmp -s $sourcePath $stagingPath")
-        ) {
-            cleanupStage()
-            return false
-        }
-
-        if (!applyTimestamp(staging)) {
-            cleanupStage()
-            return false
-        }
-
-        val hadDestination = root.execAsRoot("test -e $destinationPath")
-        if (hadDestination &&
-            !root.execAsRoot("mv -f $destinationPath $backupPath")
-        ) {
-            cleanupStage()
-            return false
-        }
-
-        var destinationChanged = false
-
-        fun rollback() {
-            if (destinationChanged) root.execAsRoot("rm -f $destinationPath")
-            if (hadDestination) {
-                root.execAsRoot("mv -f $backupPath $destinationPath")
+        fun cleanupChecksumIfSafe() {
+            if (!backupCreated ||
+                root.execAsRoot("test ! -e $backupPath && test ! -L $backupPath")
+            ) {
+                root.execAsRoot("rm -f $checksumPath")
             }
         }
 
-        if (!root.copyAsRoot(staging, destination.absolutePath)) {
-            rollback()
+        fun verifyOriginalDestination(): Boolean {
+            return root.execAsRoot(
+                "test -s $checksumPath && " +
+                    "test \"$(sha256sum $destinationPath | cut -c 1-64)\" = " +
+                    "\"$(cat $checksumPath)\""
+            )
+        }
+
+        fun rollback(): Boolean {
+            if (destinationChanged) {
+                val removed = root.execAsRoot(
+                    "rm -f $destinationPath && " +
+                        "test ! -e $destinationPath && test ! -L $destinationPath"
+                )
+                if (!removed) return false
+            }
+
+            if (backupCreated) {
+                val restored = root.execAsRoot(
+                    "mv -f $backupPath $destinationPath && " +
+                        "test -f $destinationPath && " +
+                        "test ! -e $backupPath && test ! -L $backupPath"
+                )
+
+                if (!restored) return false
+                if (!verifyOriginalDestination()) return false
+            } else if (destinationChanged) {
+                if (!root.execAsRoot(
+                        "test ! -e $destinationPath && test ! -L $destinationPath"
+                    )
+                ) {
+                    return false
+                }
+            }
+
+            return true
+        }
+
+        try {
+            if (!root.copyAsRoot(source.absolutePath, staging) ||
+                !root.execAsRoot("cmp -s $sourcePath $stagingPath")
+            ) {
+                cleanupStage()
+                return false
+            }
+
+            if (originalTimestamp > 0L) {
+                val seconds = originalTimestamp / 1000L
+                val touch =
+                    "touch -t $(date -d @$seconds +%Y%m%d%H%M.%S) $stagingPath"
+                val verify =
+                    "test \"$(stat -c %Y $stagingPath)\" = '$seconds'"
+
+                if (!root.execAsRoot(touch) || !root.execAsRoot(verify)) {
+                    cleanupStage()
+                    return false
+                }
+            }
+
+            val hadDestination = root.execAsRoot(
+                "test -e $destinationPath || test -L $destinationPath"
+            )
+
+            if (hadDestination) {
+                if (!root.execAsRoot("test -f $destinationPath")) {
+                    cleanupStage()
+                    return false
+                }
+
+                val savedChecksum = root.execAsRoot(
+                    "sha256sum $destinationPath | cut -c 1-64 > $checksumPath && " +
+                        "test -s $checksumPath"
+                )
+
+                if (!savedChecksum) {
+                    cleanupStage()
+                    return false
+                }
+
+                val movedBackup = root.execAsRoot(
+                    "mv -f $destinationPath $backupPath && " +
+                        "test -f $backupPath && " +
+                        "test ! -e $destinationPath && test ! -L $destinationPath"
+                )
+
+                backupCreated = root.execAsRoot(
+                    "test -f $backupPath && " +
+                        "test ! -e $destinationPath && test ! -L $destinationPath"
+                )
+
+                if (!movedBackup || !backupCreated) {
+                    rollback()
+                    cleanupChecksumIfSafe()
+                    cleanupStage()
+                    return false
+                }
+            } else {
+                if (!root.execAsRoot(
+                        "test ! -e $destinationPath && test ! -L $destinationPath"
+                    )
+                ) {
+                    cleanupStage()
+                    return false
+                }
+            }
+
+            // Set before copying so partial output is also covered by rollback.
+            destinationChanged = true
+
+            if (!root.copyAsRoot(staging, destination.absolutePath)) {
+                rollback()
+                cleanupChecksumIfSafe()
+                cleanupStage()
+                return false
+            }
+
+            val contentValid = root.execAsRoot(
+                "cmp -s $sourcePath $destinationPath"
+            )
+
+            val timestampValid = if (originalTimestamp > 0L) {
+                val seconds = originalTimestamp / 1000L
+                root.execAsRoot(
+                    "test \"$(stat -c %Y $destinationPath)\" = '$seconds'"
+                )
+            } else {
+                true
+            }
+
+            if (!contentValid || !timestampValid) {
+                rollback()
+                cleanupChecksumIfSafe()
+                cleanupStage()
+                return false
+            }
+
+            // The restored file is verified. Do not undo it if backup cleanup fails.
+            if (backupCreated) {
+                root.execAsRoot(
+                    "rm -f $backupPath && test ! -e $backupPath && test ! -L $backupPath"
+                )
+            }
+
+            cleanupChecksumIfSafe()
+            cleanupStage()
+            return true
+        } catch (_: Exception) {
+            if (backupCreated || destinationChanged) {
+                rollback()
+            }
+            cleanupChecksumIfSafe()
             cleanupStage()
             return false
         }
-        destinationChanged = true
-
-        val contentValid = root.execAsRoot("cmp -s $sourcePath $destinationPath")
-        val timestampValid = applyTimestamp(destination.absolutePath)
-
-        if (!contentValid || !timestampValid) {
-            rollback()
-            cleanupStage()
-            return false
-        }
-
-        // Keep a leftover backup rather than undoing a verified restore.
-        if (hadDestination) root.execAsRoot("rm -f $backupPath")
-
-        cleanupStage()
-        return true
     }
 
     private fun shellQuote(value: String): String {

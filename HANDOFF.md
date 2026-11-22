@@ -407,7 +407,7 @@ Bagian ini merupakan pembaruan resmi Handoff. Jika terdapat perbedaan dengan roa
 |---|---|
 | Architecture Audit | DONE |
 | A1 — File Operation Integrity | DONE |
-| A2 — Vault Operation Consolidation | IN PROGRESS |
+| A2 — Vault Operation Consolidation | DONE — checkpoint pending |
 | A3 — Container Session & Security | NOT STARTED |
 | A4 — App Entry & Recovery | NOT STARTED |
 | A5 — Settings Ownership | NOT STARTED |
@@ -555,7 +555,7 @@ Setiap tahap harus selesai dan terverifikasi sebelum melanjutkan ke tahap beriku
 
 ### 12.6.2 Implementasi dan Verifikasi A2 — Vault Operation Consolidation
 
-- Status: IN PROGRESS — seluruh smoke test Free dan Pro telah lulus; final audit dan checkpoint Git masih pending.
+- Status: DONE — build dan seluruh smoke test Free serta Pro telah dikonfirmasi user. Checkpoint Git masih pending.
 - `VaultRepository` menjadi jalur bersama operasi Encrypt dan Decrypt untuk sumber `Uri` maupun `File/path`.
 - Vault Screen dan File Manager menggunakan format `.svlt` yang sama serta penyimpanan metadata yang konsisten.
 - Metadata mencakup original name, MIME type, ukuran, original path, dan original timestamp.
@@ -563,15 +563,26 @@ Setiap tahap harus selesai dan terverifikasi sebelum melanjutkan ke tahap beriku
 - File `.svlt` eksternal tanpa metadata menggunakan folder pilihan sebagai fallback.
 - Restore menggunakan temporary output, verifikasi hasil, dan strategi penyimpanan melalui `StorageHelper`.
 - Encrypted source baru dihapus setelah hasil restore berhasil diverifikasi. Metadata Vault dibersihkan setelah source internal berhasil dihapus.
-- Perbaikan perbandingan digest menggunakan `contentEquals()` wajib dipertahankan karena memperbaiki verifikasi konten pada jalur filesystem non-root.
+- `VaultDbHelper.deleteFile()` memverifikasi jumlah record yang terhapus dan mengembalikan Boolean.
+- `VaultDecryptResult` membedakan keberhasilan restore, kegagalan penghapusan encrypted source, kegagalan penghapusan metadata, dan kegagalan restore.
+- Lifecycle InputStream pada proses enkripsi diperkuat agar selalu ditutup.
+- Rollback restore pada jalur Java dan Root diperkuat dengan verifikasi konten dan pemulihan backup.
+- Metadata managed `.svlt` yang dipindahkan ke shared storage dibersihkan setelah restore berhasil dan source internal tidak lagi tersedia.
+- Validasi ekstensi `.svlt` konsisten terhadap huruf besar/kecil.
+- Verifikasi konten SHA-256 menggunakan `contentEquals()` dan wajib dipertahankan.
+- Legacy `VaultImporter.kt` dihapus setelah audit tidak menemukan caller aktif. `VaultImporterHelper.kt` tetap dipertahankan karena digunakan oleh `ContainerActionHandler`.
+- Variabel `destination` yang tidak digunakan pada `VaultRepository` dihapus.
+- Copy/Move pada folder sumber dan tujuan yang sama menampilkan pilihan Replace, Skip, dan Keep Both.
+- Replace pada source dan destination yang sama menjadi no-op agar file sumber tidak terhapus.
+- Perilaku konflik untuk folder berbeda tetap dipertahankan.
+- Build `assembleFreeDebug` dan `assembleProDebug` berhasil setelah seluruh perubahan dan cleanup.
+- Smoke test Free dan Pro: Encrypt, Decrypt, penghapusan item Vault, serta Copy/Move pada folder yang sama telah dikonfirmasi berhasil.
+- Smoke test Pro: pemindahan `.svlt` ke shared storage menggunakan Move, Decrypt dari shared storage, penghapusan source, dan pembersihan metadata Vault berhasil.
+- Copy/Move pada folder yang sama telah diuji untuk Replace, Skip, dan Keep Both; seluruhnya berhasil.
+- `git diff --check` bersih.
+- Peringatan Kotlin unused variable yang ditargetkan telah dibersihkan. Peringatan deprecated Gradle features dan konfigurasi experimental AAPT2 masih ada dan berada di luar scope A2.
 - Format `.svlt`, `CryptoManager`, dan skema database Vault tidak diubah.
-- Pengujian Free: Encrypt dari Vault dan File Manager, Decrypt dari Vault, serta Decrypt melalui File Manager setelah `.svlt` dipindahkan ke shared storage berhasil.
-- Pengujian Pro: seluruh skenario Encrypt dan Decrypt yang sama berhasil.
-- Restore ke original path, pemulihan timestamp, dan penghapusan file `.svlt` internal setelah restore sukses telah dikonfirmasi user.
-- Diagnostic logging `SVLT_DIAG` telah dihapus. Build `assembleFreeDebug` dan `assembleProDebug` setelah penghapusan logging berhasil.
-- Final audit masih mencakup pemeriksaan legacy `VaultImporter.kt`, warning compiler tersisa, dan konsistensi diff.
-- Belum ada commit atau push untuk A2.
-
+- A2 siap dibuatkan checkpoint Git. Belum ada commit atau push.
 
 ## 12.7 Aturan Lokal CoGo dan Git
 
@@ -609,39 +620,30 @@ Ketentuan ini menggantikan catatan lama yang menyebut D5 masih menunggu pemeriks
 
 AI baru wajib:
 1. Membaca seluruh HANDOFF.md.
-2. Mengonfirmasi baseline dan merangkum 3 hal penting: environment CoGo, workflow patch/verifikasi, serta roadmap v1.6.8.
+2. Mengonfirmasi environment CoGo, workflow patch/verifikasi, dan roadmap v1.6.8.
 3. Memahami bahwa Architecture Audit sudah selesai dan tidak perlu diulang.
-4. Memahami bahwa file sampah lokal wajib dipertahankan dan dikecualikan dari commit.
+4. Mempertahankan seluruh file sampah lokal dan mengecualikannya dari commit.
 5. Memeriksa Git status tanpa membersihkan file lokal.
-6. Melanjutkan final audit A2 jika checkpoint belum dibuat; setelah A2 selesai, lanjut ke A3.
-7. Tidak langsung patch sebelum memastikan scope dan kondisi kerja.
+6. Jika checkpoint A2 belum dibuat, selesaikan pemeriksaan staging dan checkpoint A2 terlebih dahulu.
+7. Setelah checkpoint A2 terkonfirmasi, lanjut ke A3 — Container Session & Security.
+8. Tidak langsung patch sebelum memastikan scope dan kondisi kerja.
 
-Versi Handoff: 1.6.8 — 2026-11-21
-Status: Architecture Audit DONE, A1 DONE, A2 IN PROGRESS, A3-A6 NOT STARTED.
+Versi Handoff: 1.6.8 — 2026-11-22
+Status: Architecture Audit DONE, A1 DONE, A2 DONE (checkpoint pending), A3-A6 NOT STARTED.
 Target rilis: v1.6.8.
 
-## 12.11 Checkpoint A2 dan Hasil Final Audit Sementara
+## 12.11 Checkpoint A2 dan Hasil Final Audit
 
-Checkpoint ini menyimpan implementasi A2 saat ini sebelum perbaikan lanjutan.
-Checkpoint bukan penanda bahwa A2 telah selesai.
-
-Hasil yang sudah dikonfirmasi:
-- Build Free dan Pro berhasil.
-- Smoke test Encrypt dan Decrypt Free serta Pro berhasil.
-- Vault Screen dan File Manager sudah menggunakan VaultRepository.
-- Tidak ditemukan caller aktif VaultImporter di source Kotlin aplikasi.
-- Verifikasi konten SHA-256 menggunakan contentEquals() dan wajib dipertahankan.
-- Format .svlt tidak berubah.
-
-Temuan final audit yang masih harus diselesaikan:
-- Lifecycle InputStream perlu dijamin tertutup jika persiapan enkripsi gagal.
-- Rollback restore pada jalur Java dan Root perlu diperkuat dan diverifikasi.
-- Metadata untuk managed .svlt yang dipindahkan ke shared storage perlu ditangani agar tidak menjadi orphan.
-- Hasil restore perlu membedakan kegagalan menghapus encrypted source setelah output berhasil dipulihkan.
-- Normalisasi ekstensi .svlt perlu konsisten terhadap huruf besar/kecil.
-- Warning dan fungsi pendukung yang tidak terpakai perlu dirapikan setelah caller legacy dieliminasi.
-- Penghapusan metadata database belum memverifikasi jumlah record yang terhapus.
-
-Status A2 tetap IN PROGRESS. Perbaikan temuan di atas dan pengujian regresi Free/Pro wajib dilakukan sebelum A2 dinyatakan DONE.
-VaultImporter.kt belum dihapus pada checkpoint ini.
-Seluruh file backup dan temporary lokal tetap dipertahankan dan tidak boleh masuk commit.
+- A2 telah selesai diimplementasikan dan diverifikasi.
+- Seluruh temuan final audit A2 telah ditangani.
+- Build Free dan Pro berhasil setelah perubahan terakhir.
+- Smoke test Free dan Pro telah dikonfirmasi user.
+- Copy/Move same-folder conflict resolution telah diperbaiki dan diuji untuk Replace, Skip, dan Keep Both.
+- Legacy `VaultImporter.kt` telah dihapus; `VaultImporterHelper.kt` tetap dipertahankan.
+- Enam file source termasuk dalam perubahan A2: `VaultDbHelper.kt`, `VaultRepository.kt`, `FileManagerViewModel.kt`, `FileOperationHelper.kt`, `StorageHelper.kt`, serta penghapusan `VaultImporter.kt`.
+- `HANDOFF.md` diperbarui untuk mencatat hasil A2.
+- `git diff --check` bersih.
+- Belum ada commit atau push A2 pada saat pembaruan ini.
+- Checkpoint A2 harus dibuat dengan staging eksplisit hanya untuk file yang termasuk pekerjaan A2 dan dokumentasinya.
+- File backup, temporary, dan sampah lokal wajib dipertahankan serta dikecualikan dari staging.
+- Setelah checkpoint A2 berhasil, tahap berikutnya adalah A3 — Container Session & Security.

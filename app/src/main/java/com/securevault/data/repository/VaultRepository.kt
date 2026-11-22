@@ -23,6 +23,13 @@ enum class VaultEncryptResult {
     FAILURE
 }
 
+enum class VaultDecryptResult {
+    SUCCESS,
+    SOURCE_DELETE_FAILED,
+    METADATA_DELETE_FAILED,
+    FAILURE
+}
+
 class VaultRepository(private val context: Context) {
     private val dbHelper = VaultDbHelper(context)
 
@@ -33,13 +40,13 @@ class VaultRepository(private val context: Context) {
             val (originalName, mimeType, absolutePath) =
                 FileHelper.getFileInfoFromUri(context, sourceUri)
 
-            val input = context.contentResolver.openInputStream(sourceUri)
-                ?: throw IllegalStateException("Failed to open source file")
-
             val sourceFile = absolutePath.takeIf { it.isNotBlank() }?.let { File(it) }
             val timestamp = sourceFile
                 ?.takeIf { it.isAbsolute && it.exists() }
                 ?.lastModified() ?: 0L
+
+            val input = context.contentResolver.openInputStream(sourceUri)
+                ?: throw IllegalStateException("Failed to open source file")
 
             val deleted = encryptSource(
                 masterPassword = masterPassword,
@@ -168,6 +175,12 @@ class VaultRepository(private val context: Context) {
             tempFile.delete()
             if (!metadataSaved) destFile.delete()
             throw error
+        } finally {
+            try {
+                input.close()
+            } catch (_: Exception) {
+                // Best-effort close; jangan menutupi hasil operasi utama.
+            }
         }
     }
 
@@ -203,19 +216,48 @@ class VaultRepository(private val context: Context) {
         item: VaultItem
     ): String = withContext(Dispatchers.IO) {
         val vaultFile = File(File(context.filesDir, "vault"), "${item.uuid}.svlt")
-        restoreEncryptedFile(vaultFile, masterPassword, item, null)
-            ?: throw IllegalStateException("Failed to restore to the original location. Vault source was kept.")
+        var metadataDeleteFailed = false
+
+        val location = restoreEncryptedFile(
+            vaultFile,
+            masterPassword,
+            item,
+            null,
+            onMetadataDeleteFailed = { metadataDeleteFailed = true }
+        ) ?: throw IllegalStateException("Failed to restore to the original location. Vault source was kept.")
+
+        if (metadataDeleteFailed) {
+            throw IllegalStateException("File restored, but Vault metadata could not be deleted.")
+        }
+
+        location
     }
 
     suspend fun decryptFile(
         svltFilePath: String,
         masterPassword: String,
         destDirPath: String
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): VaultDecryptResult = withContext(Dispatchers.IO) {
+        var sourceDeleteFailed = false
+        var metadataDeleteFailed = false
         try {
-            restoreEncryptedFile(File(svltFilePath), masterPassword, null, destDirPath) != null
+            val restored = restoreEncryptedFile(
+                File(svltFilePath),
+                masterPassword,
+                null,
+                destDirPath,
+                onSourceDeleteFailed = { sourceDeleteFailed = true },
+                onMetadataDeleteFailed = { metadataDeleteFailed = true }
+            )
+
+            when {
+                sourceDeleteFailed -> VaultDecryptResult.SOURCE_DELETE_FAILED
+                metadataDeleteFailed -> VaultDecryptResult.METADATA_DELETE_FAILED
+                restored != null -> VaultDecryptResult.SUCCESS
+                else -> VaultDecryptResult.FAILURE
+            }
         } catch (_: Exception) {
-            false
+            VaultDecryptResult.FAILURE
         }
     }
 
@@ -223,7 +265,9 @@ class VaultRepository(private val context: Context) {
         sourceFile: File,
         masterPassword: String,
         suppliedItem: VaultItem?,
-        fallbackDirectory: String?
+        fallbackDirectory: String?,
+        onSourceDeleteFailed: (() -> Unit)? = null,
+        onMetadataDeleteFailed: (() -> Unit)? = null
     ): String? {
 
         if (!sourceFile.isAbsolute || !sourceFile.isFile ||
@@ -232,7 +276,7 @@ class VaultRepository(private val context: Context) {
             return null
         }
 
-        val uuid = sourceFile.name.removeSuffix(".svlt")
+        val uuid = sourceFile.name.dropLast(".svlt".length)
         val item = suppliedItem ?: dbHelper.getFileByUuid(uuid)
         val originalName = item?.originalName ?: "$uuid.bin"
         val mimeType = item?.mimeType ?: "application/octet-stream"
@@ -252,7 +296,6 @@ class VaultRepository(private val context: Context) {
             return null
         }
 
-        val destination = File(destinationPath)
 
         var tempFile: File? = null
         try {
@@ -277,15 +320,25 @@ class VaultRepository(private val context: Context) {
 
 
             if (!deleteFileSource(sourceFile)) {
+                onSourceDeleteFailed?.invoke()
                 return null
             }
 
 
-            val vaultDirectory = File(context.filesDir, "vault")
-            if (item != null &&
-                sourceFile.parentFile?.canonicalFile == vaultDirectory.canonicalFile
-            ) {
-                dbHelper.deleteFile(uuid)
+            if (item != null) {
+                val vaultDirectory = File(context.filesDir, "vault")
+                val managedVaultFile = File(vaultDirectory, "${item.uuid}.svlt")
+                if (!managedVaultFile.exists()) {
+                    val metadataDeleted = try {
+                        dbHelper.deleteFile(item.uuid)
+                    } catch (_: Exception) {
+                        false
+                    }
+
+                    if (!metadataDeleted) {
+                        onMetadataDeleteFailed?.invoke()
+                    }
+                }
             }
 
             return savedLocation
@@ -340,7 +393,9 @@ class VaultRepository(private val context: Context) {
             throw IllegalStateException("Failed to delete Vault file")
         }
 
-        dbHelper.deleteFile(item.uuid)
+        if (!dbHelper.deleteFile(item.uuid)) {
+            throw IllegalStateException("Vault metadata could not be deleted")
+        }
     }
 
     private class CountingInputStream(
