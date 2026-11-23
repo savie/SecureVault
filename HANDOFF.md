@@ -408,8 +408,8 @@ Bagian ini merupakan pembaruan resmi Handoff. Jika terdapat perbedaan dengan roa
 | Architecture Audit | DONE |
 | A1 — File Operation Integrity | DONE |
 | A2 — Vault Operation Consolidation | DONE — checkpoint `51048bb` |
-| A3 — Container Session & Security | IN PROGRESS — A3.1 dan A3.2 selesai, checkpoint A3.2 pending |
-| A4 — App Entry & Recovery | NOT STARTED |
+| A3 — Container Session & Security | DONE — A3.1 dan A3.2 selesai; checkpoint `8770a76` sudah di-push |
+| A4 — App Entry & Recovery | DONE — implementasi dan seluruh verifikasi selesai |
 | A5 — Settings Ownership | NOT STARTED |
 | A6 — Shared UI Consolidation | NOT STARTED |
 | Release v1.6.8 | NOT STARTED |
@@ -582,7 +582,7 @@ Setiap tahap harus selesai dan terverifikasi sebelum melanjutkan ke tahap beriku
 - `git diff --check` bersih.
 - Peringatan Kotlin unused variable yang ditargetkan telah dibersihkan. Peringatan deprecated Gradle features dan konfigurasi experimental AAPT2 masih ada dan berada di luar scope A2.
 - Format `.svlt`, `CryptoManager`, dan skema database Vault tidak diubah.
-- A2 siap dibuatkan checkpoint Git. Belum ada commit atau push.
+- Checkpoint A2 telah dibuat pada commit `51048bb2212cde7cd22d1b4b6bada5d37848e02d` di branch `master` dan telah dipush ke GitHub.
 
 ## 12.7 Aturan Lokal CoGo dan Git
 
@@ -624,12 +624,13 @@ AI baru wajib:
 3. Memahami bahwa Architecture Audit sudah selesai dan tidak perlu diulang.
 4. Mempertahankan seluruh file sampah lokal dan mengecualikannya dari commit.
 5. Memeriksa Git status tanpa membersihkan file lokal.
-6. Memverifikasi commit dan status lokal A3.2 sebelum melanjutkan pekerjaan.
-7. Melanjutkan A3 berikutnya hanya setelah checkpoint A3.2 terkonfirmasi.
-8. Tidak langsung patch sebelum memastikan scope dan kondisi kerja.
+6. Memverifikasi checkpoint A3.2 dan kondisi lokal A4 tanpa menghapus file backup atau file lokal lainnya.
+7. Mempertahankan A4 sebagai DONE; seluruh implementasi dan verifikasi telah selesai.
+8. Melanjutkan ke A5 hanya setelah A4 selesai, diverifikasi, dan disetujui user.
+9. Tidak langsung patch sebelum memastikan scope dan kondisi kerja.
 
 Versi Handoff: 1.6.8 — 2026-11-23
-Status: Architecture Audit DONE, A1 DONE, A2 DONE, A3.1 dan A3.2 selesai secara implementasi dan verifikasi; checkpoint A3.2 pending, A4-A6 NOT STARTED.
+Status: Architecture Audit DONE, A1 DONE, A2 DONE, A3 DONE (checkpoint A3.2 sudah di-push), A4 DONE — implementasi dan seluruh verifikasi selesai, A5-A6 NOT STARTED.
 Target rilis: v1.6.8.
 
 ## 12.11 Checkpoint A2 dan Hasil Final Audit
@@ -659,7 +660,7 @@ Target rilis: v1.6.8.
 
 ### A3.2 — Session Secret Boundary & Lock Orchestration
 
-- Status: IMPLEMENTASI DAN VERIFIKASI DONE; checkpoint Git pending.
+- Status: DONE — checkpoint Git `8770a765748cc9b5c2c88fda254774e27d4244e8` telah dibuat di branch `master` dan dipush ke GitHub.
 - `ContainerSessionManager` menyediakan `hasSession()` dan `hasAnySession()` agar pemanggil UI dan Coordinator tidak perlu mengambil seluruh map session.
 - `getAllSessions()` dihapus. API session yang mengubah atau membaca secret dibatasi ke visibilitas `internal`.
 - `ContainerAutoLockCoordinator` menggunakan `hasAnySession()` untuk memeriksa keberadaan session.
@@ -676,7 +677,63 @@ Target rilis: v1.6.8.
 - APK Free (`com.securevault`, versionCode 167, versionName `1.6.7-free`) dan Pro (`com.securevault.pro`, versionCode 167, versionName `1.6.7-pro`) berhasil diinstal ulang melalui root installer CoGo.
 - Runtime test Free: Password unlock, session-based manual lock, master-password lock, biometric unlock, password fallback, Auto-Lock, dan data integrity — seluruhnya lulus.
 - Runtime test Pro: Password unlock, session-based manual lock, master-password lock, biometric unlock, password fallback, Auto-Lock, dan data integrity — seluruhnya lulus.
-- Belum ada commit atau push A3.2. Buat checkpoint setelah final review dengan staging eksplisit hanya untuk lima file source dan `HANDOFF.md`.
+- Checkpoint A3.2 telah dibuat pada commit `8770a765748cc9b5c2c88fda254774e27d4244e8` di branch `master` dan telah dipush ke GitHub.
 - Jangan stage file backup atau file lokal lain.
+- Worktree bersih pada checkpoint A3.2 sebelum implementasi A4; backup dan file lokal tetap dipertahankan.
 
-Tahap berikutnya setelah checkpoint A3.2 terkonfirmasi adalah A4 — App Entry & Recovery.
+Implementasi dan verifikasi A4 selesai; hasil lengkap tercatat pada bagian 12.13.
+
+
+## 12.13 Implementasi dan Verifikasi A4 — App Entry & Recovery
+
+### Status dan Scope
+
+- Status: DONE — implementasi dan seluruh verifikasi akhir telah dikonfirmasi user.
+- Tujuan A4 adalah memisahkan startup dan authentication orchestration dari Composable tanpa membuat sistem authentication baru.
+- `AppEntryViewModel` menjadi pemilik state dan orchestration untuk startup, authentication, Master Password, biometric setting, serta Container Recovery.
+- Perilaku authentication, recovery, dan security yang sudah ada harus dipertahankan.
+
+### Implementasi
+
+- `MainActivity.kt` menggunakan `AppEntryViewModel` untuk mengelola startup dan authentication flow.
+- `AppEntryViewModel.kt` menjadi pemilik loading Master Password, authentication stage, biometric setting, recovery migration, pemeriksaan recovery, retry, dan manual recovery.
+- `ContainerRecoveryScreen.kt` difokuskan sebagai UI untuk menampilkan dan menjalankan interaksi recovery.
+- `SetupScreen.kt` menggunakan asynchronous save state untuk penyimpanan Master Password.
+- Activity recreation dengan `savedInstanceState != null` mengembalikan aplikasi ke tahap Unlock sehingga autentikasi diminta kembali.
+- Cancellation coroutine, auth generation guard, serta pembatalan dan tracking recovery job ditangani untuk mencegah pekerjaan lama memperbarui state yang sudah tidak berlaku.
+- Error pada proses loading dan penyimpanan Master Password ditangani tanpa membiarkan state busy menggantung.
+- `MasterPasswordStore`, `BiometricUnlockStore`, dan `ContainerRepository` tidak diubah.
+- Model authentication, format file, transaksi repository A3, dan mekanisme Auto-Lock tidak diubah.
+
+### File yang Berubah
+
+- `app/src/main/java/com/securevault/MainActivity.kt`
+- `app/src/main/java/com/securevault/ui/screens/SetupScreen.kt`
+- `app/src/main/java/com/securevault/ui/screens/ContainerRecoveryScreen.kt`
+- `app/src/main/java/com/securevault/ui/viewmodel/AppEntryViewModel.kt` (file baru)
+
+### Build dan Runtime Verification
+
+- `assembleFreeDebug` dan `assembleProDebug` berhasil.
+- APK Free (`com.securevault`) dan Pro (`com.securevault.pro`) berhasil diinstal melalui root installer CoGo.
+- Startup dan Master Password Unlock: lulus pada Free dan Pro.
+- Container Recovery startup gate: lulus.
+- Activity recreation melalui rotasi dan permintaan autentikasi ulang: lulus.
+- Global Lock: lulus.
+- Master Password recovery dan Custom Password recovery: lulus.
+- Wrong password dan retry: lulus.
+- Vault Encrypt, Decrypt, Rename, dan Delete: lulus.
+- Container create, Rename, Unlock/Mount, File Manager operation, Lock/Unmount, Auto-Lock, dan re-entry: lulus.
+- Pengujian Container mencakup Master Password maupun Custom Password, dengan dan tanpa biometric.
+- Biometric unlock dan fallback tetap berfungsi.
+
+### Verifikasi Akhir — Seluruhnya Lulus
+
+1. Lock ketika recovery coroutine sedang aktif: LULUS. Cancellation dan state guard telah diverifikasi.
+2. Asynchronous Master Password save pada SetupScreen melalui fresh install tanpa Master Password: LULUS.
+
+- Seluruh implementasi dan verifikasi A4 telah selesai dan dikonfirmasi user.
+- Belum ada checkpoint Git A4.
+- File backup sebelum patch A4 dan file lokal lainnya harus tetap dipertahankan serta tidak boleh masuk staging.
+
+Tahap berikutnya: A5 — Settings Ownership, setelah scope dan kondisi repository diverifikasi.

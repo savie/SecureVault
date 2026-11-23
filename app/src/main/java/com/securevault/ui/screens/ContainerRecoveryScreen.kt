@@ -12,95 +12,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
 import com.securevault.data.local.ContainerItem
-import com.securevault.data.repository.ContainerRepository
-import kotlinx.coroutines.launch
+import com.securevault.ui.viewmodel.ContainerRecoveryUiState
 
 @Composable
 fun ContainerRecoveryScreen(
     masterPassword: String,
-    onComplete: () -> Unit
+    recovery: ContainerRecoveryUiState,
+    onRetry: () -> Unit,
+    onRecover: (ContainerItem, String) -> Unit
 ) {
-    val context = LocalContext.current
-    val repository = remember(context) {
-        ContainerRepository(context.applicationContext)
-    }
-    val scope = rememberCoroutineScope()
-
-    var pending by remember { mutableStateOf<List<ContainerItem>?>(null) }
     var passwords by remember { mutableStateOf(mapOf<String, String>()) }
     var visiblePasswords by remember { mutableStateOf(setOf<String>()) }
-    var errors by remember { mutableStateOf(mapOf<String, String>()) }
-    var busyIds by remember { mutableStateOf(setOf<String>()) }
-    var completed by remember { mutableStateOf(false) }
-    var isCheckingStartup by remember { mutableStateOf(true) }
-    var startupError by remember { mutableStateOf<String?>(null) }
 
-    fun updatePending(items: List<ContainerItem>) {
-        pending = items
-        if (items.isEmpty() && !completed) {
-            completed = true
-            onComplete()
-        }
-    }
-
-    suspend fun runStartupChecks() {
-        isCheckingStartup = true
-        startupError = null
-        pending = null
-
-        try {
-            // Storage migration must finish before recovery starts.
-            val migrationSuccess =
-                repository.migrateContainersToInternalStorage()
-
-            if (!migrationSuccess) {
-                startupError =
-                    "Container storage migration failed. " +
-                    "Your original Container files have been preserved. Retry to continue."
-                isCheckingStartup = false
-                return
-            }
-
-            val items = repository.getPendingRecoveries()
-            pending = items
-
-            items.filter { it.usesMasterPassword }.forEach { item ->
-                busyIds = busyIds + item.id
-
-                val success = repository.recoverContainer(
-                    item,
-                    masterPassword
-                )
-
-                busyIds = busyIds - item.id
-
-                if (!success) {
-                    errors = errors + (
-                        item.id to
-                            "Automatic recovery failed. Retry or check the Container file."
-                    )
-                }
-            }
-
-            updatePending(repository.getPendingRecoveries())
-        } catch (e: Exception) {
-            startupError =
-                "Startup verification failed. Retry to continue."
-            android.util.Log.e(
-                "SecureVault",
-                "Container startup gate failed",
-                e
-            )
-        }
-
-        isCheckingStartup = false
-    }
-
-    LaunchedEffect(masterPassword) {
-        runStartupChecks()
-    }
+    val pending = recovery.pending
 
     Column(
         modifier = Modifier
@@ -123,13 +48,13 @@ fun ContainerRecoveryScreen(
 
         Spacer(Modifier.height(24.dp))
 
-        if (isCheckingStartup) {
+        if (recovery.isCheckingStartup) {
             CircularProgressIndicator()
             Spacer(Modifier.height(12.dp))
             Text("Migrating and verifying Container storage...")
-        } else if (startupError != null) {
+        } else if (recovery.startupError != null) {
             Text(
-                startupError!!,
+                recovery.startupError,
                 color = MaterialTheme.colorScheme.error
             )
 
@@ -137,20 +62,16 @@ fun ContainerRecoveryScreen(
 
             Button(
                 modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    scope.launch {
-                        runStartupChecks()
-                    }
-                }
+                onClick = onRetry
             ) {
                 Text("Retry")
             }
         } else if (pending == null) {
             Text("Checking Container recovery...")
-        } else if (pending!!.isEmpty()) {
+        } else if (pending.isEmpty()) {
             Text("Recovery completed.")
         } else {
-            pending!!.forEach { item ->
+            pending.forEach { item ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -173,7 +94,7 @@ fun ContainerRecoveryScreen(
                             style = MaterialTheme.typography.bodySmall
                         )
 
-                        errors[item.id]?.let { error ->
+                        recovery.errors[item.id]?.let { error ->
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 error,
@@ -231,47 +152,21 @@ fun ContainerRecoveryScreen(
                         Spacer(Modifier.height(12.dp))
 
                         Button(
-                            enabled = item.id !in busyIds &&
+                            enabled = item.id !in recovery.busyIds &&
                                 (item.usesMasterPassword ||
                                     !passwords[item.id].isNullOrBlank()),
                             modifier = Modifier.fillMaxWidth(),
                             onClick = {
-                                val password =
-                                    if (item.usesMasterPassword) {
-                                        masterPassword
-                                    } else {
-                                        passwords[item.id].orEmpty()
-                                    }
-
-                                scope.launch {
-                                    busyIds = busyIds + item.id
-                                    errors = errors - item.id
-
-                                    val success = repository.recoverContainer(
-                                        item,
-                                        password
-                                    )
-
-                                    busyIds = busyIds - item.id
-
-                                    if (success) {
-                                        passwords = passwords - item.id
-                                        visiblePasswords =
-                                            visiblePasswords - item.id
-
-                                        updatePending(
-                                            repository.getPendingRecoveries()
-                                        )
-                                    } else {
-                                        errors = errors + (
-                                            item.id to
-                                                "Recovery failed. Check the password and try again."
-                                        )
-                                    }
+                                val password = if (item.usesMasterPassword) {
+                                    masterPassword
+                                } else {
+                                    passwords[item.id].orEmpty()
                                 }
+
+                                onRecover(item, password)
                             }
                         ) {
-                            if (item.id in busyIds) {
+                            if (item.id in recovery.busyIds) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(20.dp),
                                     strokeWidth = 2.dp
