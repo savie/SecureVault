@@ -5,6 +5,7 @@ import com.securevault.crypto.CryptoManager
 import com.securevault.data.local.ContainerDbHelper
 import com.securevault.data.local.ContainerItem
 import com.securevault.utils.ContainerEngine
+import com.securevault.utils.AutoLockDiagnosticsStore
 import com.securevault.utils.ContainerSessionManager
 import com.securevault.utils.KeystoreHelper
 import kotlinx.coroutines.Dispatchers
@@ -590,44 +591,106 @@ class ContainerRepository(private val context: Context) {
         var lockedCount = 0
         val containers = dbHelper.getAllContainers()
 
+        AutoLockDiagnosticsStore.record(
+            context,
+            "REPOSITORY_SCAN",
+            "containerCount=${containers.size}"
+        )
+
         for (container in containers) {
+            val containerTag = container.id.take(8)
+
             val locked = lockFor(container.id).withLock {
                 try {
                     val current = dbHelper.getAllContainers()
                         .find { it.id == container.id }
-                        ?: return@withLock false
+                        ?: run {
+                            AutoLockDiagnosticsStore.record(
+                                context,
+                                "CONTAINER_RECORD_MISSING",
+                                containerTag
+                            )
+                            return@withLock false
+                        }
 
                     if (!current.isMounted) {
                         ContainerSessionManager.removeSession(container.id)
+                        AutoLockDiagnosticsStore.record(
+                            context,
+                            "CONTAINER_NOT_MOUNTED",
+                            containerTag
+                        )
                         return@withLock false
                     }
 
                     val password = ContainerSessionManager.getPassword(container.id)
-                        ?: return@withLock false
+                        ?: run {
+                            AutoLockDiagnosticsStore.record(
+                                context,
+                                "SESSION_PASSWORD_MISSING",
+                                containerTag
+                            )
+                            return@withLock false
+                        }
 
                     val tempDir = File(
                         context.filesDir,
                         "containers_temp/${container.id}"
                     )
 
-                    if (!tempDir.isDirectory) return@withLock false
+                    if (!tempDir.isDirectory) {
+                        AutoLockDiagnosticsStore.record(
+                            context,
+                            "PLAINTEXT_DIRECTORY_MISSING",
+                            containerTag
+                        )
+                        return@withLock false
+                    }
 
                     val containerFile = File(current.filePath)
+
+                    AutoLockDiagnosticsStore.record(
+                        context,
+                        "PACK_STARTED",
+                        "container=$containerTag files=${tempDir.walkTopDown().count { it.isFile }}"
+                    )
 
                     if (!ContainerEngine.packFolder(
                             tempDir,
                             containerFile,
                             password
-                        )
+                        ) { event, detail ->
+                            AutoLockDiagnosticsStore.record(
+                                context,
+                                event,
+                                "container=$containerTag $detail"
+                            )
+                        }
                     ) {
+                        AutoLockDiagnosticsStore.record(
+                            context,
+                            "PACK_FAILED",
+                            containerTag
+                        )
                         return@withLock false
                     }
+
+                    AutoLockDiagnosticsStore.record(
+                        context,
+                        "PACK_SUCCEEDED",
+                        "container=$containerTag size=${containerFile.length()}"
+                    )
 
                     // Persist Locked before deleting the plaintext directory.
                     if (!dbHelper.updateMountStatus(container.id, false)) {
                         android.util.Log.e(
                             "ContainerRepository",
                             "Auto-lock database transition failed; plaintext retained: ${container.id}"
+                        )
+                        AutoLockDiagnosticsStore.record(
+                            context,
+                            "DB_TRANSITION_FAILED",
+                            containerTag
                         )
                         return@withLock false
                     }
@@ -642,9 +705,25 @@ class ContainerRepository(private val context: Context) {
                                 "ContainerRepository",
                                 "Auto-locked; plaintext cleanup is pending: ${container.id}"
                             )
+                            AutoLockDiagnosticsStore.record(
+                                context,
+                                "PLAINTEXT_CLEANUP_FAILED",
+                                containerTag
+                            )
+                        } else {
+                            AutoLockDiagnosticsStore.record(
+                                context,
+                                "PLAINTEXT_CLEANUP_SUCCEEDED",
+                                containerTag
+                            )
                         }
                     }
 
+                    AutoLockDiagnosticsStore.record(
+                        context,
+                        "CONTAINER_LOCK_SUCCESS",
+                        containerTag
+                    )
                     true
                 } catch (e: Exception) {
                     android.util.Log.e(
@@ -652,12 +731,23 @@ class ContainerRepository(private val context: Context) {
                         "Auto-lock failed: ${container.id}",
                         e
                     )
+                    AutoLockDiagnosticsStore.record(
+                        context,
+                        "CONTAINER_LOCK_EXCEPTION",
+                        "container=$containerTag type=${e.javaClass.simpleName}"
+                    )
                     false
                 }
             }
 
             if (locked) lockedCount++
         }
+
+        AutoLockDiagnosticsStore.record(
+            context,
+            "REPOSITORY_FINISHED",
+            "lockedCount=$lockedCount scanned=${containers.size}"
+        )
 
         lockedCount
     }

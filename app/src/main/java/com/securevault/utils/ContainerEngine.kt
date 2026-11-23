@@ -22,12 +22,31 @@ object ContainerEngine {
     suspend fun packFolder(
         sourceFolder: File,
         destContainer: File,
-        password: String
+        password: String,
+        onDiagnostic: ((String, String) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
-        val parent = destContainer.parentFile ?: return@withContext false
+        fun report(event: String, detail: String = "") {
+            try {
+                onDiagnostic?.invoke(event, detail)
+            } catch (_: Exception) {
+                // Diagnostic callback must never interrupt container packing.
+            }
+        }
 
-        if (!sourceFolder.isDirectory) return@withContext false
-        if (!parent.exists() && !parent.mkdirs()) return@withContext false
+        val parent = destContainer.parentFile ?: run {
+            report("PACK_PARENT_MISSING")
+            return@withContext false
+        }
+
+        if (!sourceFolder.isDirectory) {
+            report("PACK_SOURCE_NOT_DIRECTORY")
+            return@withContext false
+        }
+
+        if (!parent.exists() && !parent.mkdirs()) {
+            report("PACK_PARENT_CREATE_FAILED")
+            return@withContext false
+        }
 
         var tempZip: File? = null
         var encryptedTemp: File? = null
@@ -41,6 +60,7 @@ object ContainerEngine {
             zipFolder(sourceFolder, tempZip)
 
             if (!tempZip.isFile || tempZip.length() <= 0L) {
+                report("PACK_EMPTY_ARCHIVE")
                 return@withContext false
             }
 
@@ -84,6 +104,7 @@ object ContainerEngine {
             }
 
             if (!verified || !verifyZip.isFile) {
+                report("PACK_VERIFY_FAILED")
                 return@withContext false
             }
 
@@ -91,10 +112,12 @@ object ContainerEngine {
             val verifiedHash = sha256(verifyZip)
 
             if (!sourceHash.contentEquals(verifiedHash)) {
+                report("PACK_HASH_MISMATCH")
                 return@withContext false
             }
 
             if (tempZip.length() != verifyZip.length()) {
+                report("PACK_LENGTH_MISMATCH")
                 return@withContext false
             }
 
@@ -105,9 +128,17 @@ object ContainerEngine {
                 destContainer.absolutePath
             )
 
+            report(
+                "PACK_ATOMIC_RENAME_SUCCESS",
+                "size=${destContainer.length()}"
+            )
             true
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("ContainerEngine", "Container pack failed", e)
+            report(
+                "PACK_EXCEPTION",
+                "type=${e.javaClass.simpleName}"
+            )
             false
         } finally {
             tempZip?.delete()
@@ -224,10 +255,8 @@ object ContainerEngine {
 
                     zos.putNextEntry(entry)
 
-                    var inputStream: InputStream? = null
-
-                    try {
-                        inputStream = FileInputStream(file)
+                    val inputStream: InputStream = try {
+                        FileInputStream(file)
                     } catch (e: Exception) {
                         if (FileAccessManager.rootOperations.isAvailable()) {
                             val process = Runtime.getRuntime().exec(
@@ -237,13 +266,13 @@ object ContainerEngine {
                                     "cat \"" + file.absolutePath + "\""
                                 )
                             )
-                            inputStream = process.inputStream
+                            process.inputStream
                         } else {
                             throw e
                         }
                     }
 
-                    inputStream?.use { input ->
+                    inputStream.use { input ->
                         while (true) {
                             val count = input.read(buffer)
                             if (count < 0) break

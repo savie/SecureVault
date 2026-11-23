@@ -1,11 +1,13 @@
 package com.securevault.ui.screens
 
-import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -24,6 +26,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.securevault.fs.FileAccessManager
 import com.securevault.ui.components.AppTopBar
+import com.securevault.utils.AutoLockDiagnosticsStore
+import com.securevault.utils.AutoLockSettingsStore
 import com.securevault.utils.BiometricUnlockStore
 
 data class AutoLockOption(val label: String, val millis: Long)
@@ -36,9 +40,11 @@ fun SettingsScreen(
     onBiometricToggle: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE) }
     var biometricMessage by remember { mutableStateOf<String?>(null) }
     var biometricEnrolling by remember { mutableStateOf(false) }
+    var diagnosticsCount by remember {
+        mutableStateOf(AutoLockDiagnosticsStore.getEntryCount(context))
+    }
     
     val autoLockOptions = listOf(
         AutoLockOption("Off", 0L),
@@ -47,7 +53,7 @@ fun SettingsScreen(
         AutoLockOption("10 minutes", 600_000L)
     )
     var selectedAutoLockMillis by remember {
-        mutableStateOf(prefs.getLong("container_auto_lock_ms", 300_000L))
+        mutableStateOf(AutoLockSettingsStore.getDurationMillis(context))
     }
     var expanded by remember { mutableStateOf(false) }
     val selectedLabel = autoLockOptions.find { it.millis == selectedAutoLockMillis }?.label ?: "5 minutes"
@@ -161,13 +167,85 @@ fun SettingsScreen(
                                 DropdownMenuItem(
                                     text = { Text(option.label, color = Color.White) },
                                     onClick = {
-                                        selectedAutoLockMillis = option.millis
-                                        prefs.edit().putLong("container_auto_lock_ms", option.millis).apply()
+                                        if (AutoLockSettingsStore.setDurationMillis(context, option.millis)) {
+                                            selectedAutoLockMillis = option.millis
+                                        }
                                         expanded = false
                                     }
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            Text(
+                "Auto-Lock Diagnostics",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.Gray
+            )
+            Spacer(Modifier.height(8.dp))
+
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF1E1E1E)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Internal diagnostic history",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "$diagnosticsCount events stored",
+                        color = Color.Gray,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(12.dp))
+
+                    Button(
+                        onClick = {
+                            val report = AutoLockDiagnosticsStore.getReport(context)
+                            val clipboard = context.getSystemService(
+                                android.content.Context.CLIPBOARD_SERVICE
+                            ) as ClipboardManager
+
+                            clipboard.setPrimaryClip(
+                                ClipData.newPlainText(
+                                    "SecureVault Auto-Lock Diagnostics",
+                                    report
+                                )
+                            )
+
+                            Toast.makeText(
+                                context,
+                                "Diagnostics copied",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Copy Diagnostics")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val cleared = AutoLockDiagnosticsStore.clear(context)
+                            diagnosticsCount = AutoLockDiagnosticsStore.getEntryCount(context)
+
+                            Toast.makeText(
+                                context,
+                                if (cleared) "Diagnostics cleared" else "Failed to clear diagnostics",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Clear Diagnostics")
                     }
                 }
             }
