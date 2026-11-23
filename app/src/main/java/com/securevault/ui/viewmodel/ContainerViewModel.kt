@@ -116,4 +116,31 @@ class ContainerViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
     }
+
+    fun unmountContainerUsingSession(
+        item: ContainerItem,
+        onComplete: (Boolean) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                message = "Closing container..."
+            )
+            val success = repository.unmountContainerUsingSession(item)
+            if (success) {
+                onComplete(true)
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    message = "✅ Container '${item.name}' closed."
+                )
+                refreshContainers()
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    message = "❌ Failed to close."
+                )
+                onComplete(false)
+            }
+        }
+    }
 }

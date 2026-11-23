@@ -22,10 +22,8 @@ fun handleUnlockLock(
     onNeedPassword: (PasswordAction) -> Unit
 ) {
     if (isMounted) {
-        val cached = ContainerSessionManager.getPassword(item.id)
-        if (cached != null) {
-            viewModel.unmountContainer(item, cached)
-
+        if (ContainerSessionManager.hasSession(item.id)) {
+            viewModel.unmountContainerUsingSession(item)
         } else if (item.usesMasterPassword) {
             viewModel.unmountContainer(item, masterPassword)
         } else {

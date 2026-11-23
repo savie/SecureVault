@@ -384,6 +384,17 @@ class ContainerRepository(private val context: Context) {
     suspend fun unmountContainer(
         item: ContainerItem,
         password: String
+    ): Boolean = unmountContainerInternal(item) { password }
+
+    suspend fun unmountContainerUsingSession(
+        item: ContainerItem
+    ): Boolean = unmountContainerInternal(item) {
+        ContainerSessionManager.getPassword(item.id)
+    }
+
+    private suspend fun unmountContainerInternal(
+        item: ContainerItem,
+        passwordProvider: () -> String?
     ): Boolean = withContext(Dispatchers.IO) {
         lockFor(item.id).withLock {
             try {
@@ -391,6 +402,9 @@ class ContainerRepository(private val context: Context) {
                     .find { it.id == item.id } ?: return@withLock false
 
                 if (!current.isMounted) return@withLock false
+
+                // Resolve the secret only after acquiring the container lock.
+                val password = passwordProvider() ?: return@withLock false
 
                 if (!CryptoManager.verifyPassword(
                         password,

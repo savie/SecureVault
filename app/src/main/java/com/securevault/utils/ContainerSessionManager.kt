@@ -12,20 +12,24 @@ object ContainerSessionManager {
     private val _autoLockTrigger = MutableSharedFlow<Unit>()
     val autoLockTrigger = _autoLockTrigger.asSharedFlow()
 
-    fun addSession(containerId: String, password: String) {
+    internal fun addSession(containerId: String, password: String) {
         passwords[containerId] = password
     }
 
-    fun removeSession(containerId: String) {
+    internal fun removeSession(containerId: String) {
         passwords.remove(containerId)
     }
 
-    fun getPassword(containerId: String): String? {
+    internal fun getPassword(containerId: String): String? {
         return passwords[containerId]
     }
 
-    fun getAllSessions(): Map<String, String> {
-        return passwords.toMap()
+    internal fun hasSession(containerId: String): Boolean {
+        return passwords.containsKey(containerId)
+    }
+
+    internal fun hasAnySession(): Boolean {
+        return passwords.isNotEmpty()
     }
 
     fun triggerAutoLockEvent() {

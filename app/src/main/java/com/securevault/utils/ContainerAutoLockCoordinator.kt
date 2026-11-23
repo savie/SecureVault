@@ -34,7 +34,7 @@ object ContainerAutoLockCoordinator : LifecycleEventObserver {
 
     private fun scheduleAutoLock() {
         val context = appContext ?: return
-        if (ContainerSessionManager.getAllSessions().isEmpty()) return
+        if (!ContainerSessionManager.hasAnySession()) return
 
         val prefs = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
         val delayMs = prefs.getLong("container_auto_lock_ms", 300_000L)

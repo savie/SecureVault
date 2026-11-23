@@ -407,8 +407,8 @@ Bagian ini merupakan pembaruan resmi Handoff. Jika terdapat perbedaan dengan roa
 |---|---|
 | Architecture Audit | DONE |
 | A1 — File Operation Integrity | DONE |
-| A2 — Vault Operation Consolidation | DONE — checkpoint pending |
-| A3 — Container Session & Security | NOT STARTED |
+| A2 — Vault Operation Consolidation | DONE — checkpoint `51048bb` |
+| A3 — Container Session & Security | IN PROGRESS — A3.1 dan A3.2 selesai, checkpoint A3.2 pending |
 | A4 — App Entry & Recovery | NOT STARTED |
 | A5 — Settings Ownership | NOT STARTED |
 | A6 — Shared UI Consolidation | NOT STARTED |
@@ -555,7 +555,7 @@ Setiap tahap harus selesai dan terverifikasi sebelum melanjutkan ke tahap beriku
 
 ### 12.6.2 Implementasi dan Verifikasi A2 — Vault Operation Consolidation
 
-- Status: DONE — build dan seluruh smoke test Free serta Pro telah dikonfirmasi user. Checkpoint Git masih pending.
+- Status: DONE — build, smoke test Free dan Pro, serta checkpoint Git `51048bb` telah selesai.
 - `VaultRepository` menjadi jalur bersama operasi Encrypt dan Decrypt untuk sumber `Uri` maupun `File/path`.
 - Vault Screen dan File Manager menggunakan format `.svlt` yang sama serta penyimpanan metadata yang konsisten.
 - Metadata mencakup original name, MIME type, ukuran, original path, dan original timestamp.
@@ -624,12 +624,12 @@ AI baru wajib:
 3. Memahami bahwa Architecture Audit sudah selesai dan tidak perlu diulang.
 4. Mempertahankan seluruh file sampah lokal dan mengecualikannya dari commit.
 5. Memeriksa Git status tanpa membersihkan file lokal.
-6. Jika checkpoint A2 belum dibuat, selesaikan pemeriksaan staging dan checkpoint A2 terlebih dahulu.
-7. Setelah checkpoint A2 terkonfirmasi, lanjut ke A3 — Container Session & Security.
+6. Memverifikasi commit dan status lokal A3.2 sebelum melanjutkan pekerjaan.
+7. Melanjutkan A3 berikutnya hanya setelah checkpoint A3.2 terkonfirmasi.
 8. Tidak langsung patch sebelum memastikan scope dan kondisi kerja.
 
-Versi Handoff: 1.6.8 — 2026-11-22
-Status: Architecture Audit DONE, A1 DONE, A2 DONE (checkpoint pending), A3-A6 NOT STARTED.
+Versi Handoff: 1.6.8 — 2026-11-23
+Status: Architecture Audit DONE, A1 DONE, A2 DONE, A3.1 dan A3.2 selesai secara implementasi dan verifikasi; checkpoint A3.2 pending, A4-A6 NOT STARTED.
 Target rilis: v1.6.8.
 
 ## 12.11 Checkpoint A2 dan Hasil Final Audit
@@ -641,9 +641,42 @@ Target rilis: v1.6.8.
 - Copy/Move same-folder conflict resolution telah diperbaiki dan diuji untuk Replace, Skip, dan Keep Both.
 - Legacy `VaultImporter.kt` telah dihapus; `VaultImporterHelper.kt` tetap dipertahankan.
 - Enam file source termasuk dalam perubahan A2: `VaultDbHelper.kt`, `VaultRepository.kt`, `FileManagerViewModel.kt`, `FileOperationHelper.kt`, `StorageHelper.kt`, serta penghapusan `VaultImporter.kt`.
-- `HANDOFF.md` diperbarui untuk mencatat hasil A2.
-- `git diff --check` bersih.
-- Belum ada commit atau push A2 pada saat pembaruan ini.
-- Checkpoint A2 harus dibuat dengan staging eksplisit hanya untuk file yang termasuk pekerjaan A2 dan dokumentasinya.
-- File backup, temporary, dan sampah lokal wajib dipertahankan serta dikecualikan dari staging.
-- Setelah checkpoint A2 berhasil, tahap berikutnya adalah A3 — Container Session & Security.
+- Checkpoint A2 telah dibuat pada commit `51048bb2212cde7cd22d1b4b6bada5d37848e02d` di branch `master` dan telah dipush ke GitHub.
+- File backup, temporary, dan sampah lokal dipertahankan serta dikecualikan dari staging A2.
+
+## 12.12 Implementasi dan Verifikasi A3 — Container Session & Security
+
+### A3.1 — Session Ownership dan Auto-Lock Recovery
+
+- Status: DONE.
+- Checkpoint pada commit `77d4684bf2cd37dcf74904822b7a8f0b73bec411` di branch `master`.
+- `ContainerSessionManager` menggunakan `ConcurrentHashMap` untuk menyimpan password session secara thread-safe.
+- Registrasi session dilakukan oleh `ContainerRepository` setelah mount berhasil; ViewModel tidak lagi mendaftarkan session secara terpisah.
+- Cache password lokal pada `ContainerScreen` dihapus.
+- Manual unmount menggunakan session yang dikelola `ContainerSessionManager`.
+- Transaksi unmount, recovery, dan Auto-Lock mempertahankan urutan: packing dan verifikasi arsip, pembaruan status database menjadi locked, lalu penghapusan plaintext.
+- Startup Recovery memverifikasi arsip sebelum membersihkan plaintext yang tertinggal.
+
+### A3.2 — Session Secret Boundary & Lock Orchestration
+
+- Status: IMPLEMENTASI DAN VERIFIKASI DONE; checkpoint Git pending.
+- `ContainerSessionManager` menyediakan `hasSession()` dan `hasAnySession()` agar pemanggil UI dan Coordinator tidak perlu mengambil seluruh map session.
+- `getAllSessions()` dihapus. API session yang mengubah atau membaca secret dibatasi ke visibilitas `internal`.
+- `ContainerAutoLockCoordinator` menggunakan `hasAnySession()` untuk memeriksa keberadaan session.
+- `ContainerRepository` menyediakan `unmountContainerUsingSession()` dan membaca password session setelah memperoleh Mutex container.
+- Kedua jalur unmount menggunakan implementasi transaksi bersama sehingga validasi password, packing, verifikasi, pembaruan database, dan cleanup tetap konsisten.
+- `ContainerViewModel` menyediakan entry point session-based unmount tanpa menerima password.
+- `ContainerActionHandler` tidak lagi membaca password session. UI hanya memeriksa keberadaan session.
+- Password prompt dan master-password fallback tetap menggunakan jalur unmount berbasis password.
+- Biometric unlock, tombol Use Password, dan perilaku fallback tidak diubah.
+- Format `.svct`, algoritma enkripsi, recovery, serta urutan transaksi Auto-Lock tidak diubah.
+- Backup lima file sebelum patch tersedia dengan suffix `.pre_a3_2_20261123_105258.bak`.
+- `git diff --check` bersih. Perubahan source terbatas pada lima file: `ContainerRepository.kt`, `ContainerActionHandler.kt`, `ContainerViewModel.kt`, `ContainerAutoLockCoordinator.kt`, dan `ContainerSessionManager.kt`.
+- Build `assembleFreeDebug` dan `assembleProDebug` berhasil.
+- APK Free (`com.securevault`, versionCode 167, versionName `1.6.7-free`) dan Pro (`com.securevault.pro`, versionCode 167, versionName `1.6.7-pro`) berhasil diinstal ulang melalui root installer CoGo.
+- Runtime test Free: Password unlock, session-based manual lock, master-password lock, biometric unlock, password fallback, Auto-Lock, dan data integrity — seluruhnya lulus.
+- Runtime test Pro: Password unlock, session-based manual lock, master-password lock, biometric unlock, password fallback, Auto-Lock, dan data integrity — seluruhnya lulus.
+- Belum ada commit atau push A3.2. Buat checkpoint setelah final review dengan staging eksplisit hanya untuk lima file source dan `HANDOFF.md`.
+- Jangan stage file backup atau file lokal lain.
+
+Tahap berikutnya setelah checkpoint A3.2 terkonfirmasi adalah A4 — App Entry & Recovery.
