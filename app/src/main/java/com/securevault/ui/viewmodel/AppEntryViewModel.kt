@@ -1,7 +1,6 @@
 package com.securevault.ui.viewmodel
 
 import android.app.Application
-import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.securevault.data.local.ContainerItem
@@ -51,10 +50,6 @@ class AppEntryViewModel(
 ) : AndroidViewModel(application) {
 
     private val app = application.applicationContext
-    private val prefs = app.getSharedPreferences(
-        "vault_prefs",
-        Context.MODE_PRIVATE
-    )
     private val repository = ContainerRepository(app)
 
     private val _uiState = MutableStateFlow(AppEntryUiState())
@@ -103,8 +98,7 @@ class AppEntryViewModel(
 
                     is MasterPasswordStore.LoadResult.Loaded -> {
                         val biometricEnabled = withContext(Dispatchers.IO) {
-                            prefs.getBoolean("biometric_enabled", false) &&
-                                BiometricUnlockStore.isEnrolled(app)
+                            BiometricUnlockStore.isEnrolled(app)
                         }
 
                         _uiState.value = AppEntryUiState(
@@ -235,10 +229,6 @@ class AppEntryViewModel(
     }
 
     fun setBiometricEnabled(enabled: Boolean) {
-        prefs.edit()
-            .putBoolean("biometric_enabled", enabled)
-            .apply()
-
         _uiState.value = _uiState.value.copy(
             biometricEnabled = enabled
         )

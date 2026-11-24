@@ -9,6 +9,8 @@ import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -82,7 +84,13 @@ fun SettingsScreen(
         },
         containerColor = Color(0xFF121212)
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
             Text("Security", style = MaterialTheme.typography.titleMedium, color = Color.Gray)
             Spacer(Modifier.height(8.dp))
 
@@ -98,9 +106,12 @@ fun SettingsScreen(
                         checked = biometricEnabled, enabled = !biometricEnrolling,
                         onCheckedChange = { enabled ->
                             if (!enabled) {
-                                BiometricUnlockStore.disable(context)
-                                onBiometricToggle(false)
-                                biometricMessage = "Biometric Unlock disabled."
+                                if (BiometricUnlockStore.disable(context)) {
+                                    onBiometricToggle(false)
+                                    biometricMessage = "Biometric Unlock disabled."
+                                } else {
+                                    biometricMessage = "Unable to disable Biometric Unlock. Please try again."
+                                }
                             } else {
                                 val activity = context.findFragmentActivity()
                                 if (activity == null) {
@@ -112,7 +123,9 @@ fun SettingsScreen(
                                     biometricMessage = "Complete biometric authentication to enable unlock."
                                     BiometricUnlockStore.enroll(activity) { success, message ->
                                         biometricEnrolling = false
-                                        onBiometricToggle(success)
+                                        if (success) {
+                                            onBiometricToggle(true)
+                                        }
                                         biometricMessage = message
                                     }
                                 }

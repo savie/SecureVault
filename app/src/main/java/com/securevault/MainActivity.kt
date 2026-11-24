@@ -200,6 +200,12 @@ fun MainAppScreen(
         androidx.lifecycle.viewmodel.compose.viewModel()
 
     var isBottomBarVisible by remember { mutableStateOf(true) }
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentDestination = navBackStackEntry?.destination
+
+    LaunchedEffect(currentDestination?.route) {
+        isBottomBarVisible = true
+    }
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
@@ -231,10 +237,6 @@ fun MainAppScreen(
                 exit = slideOutVertically(targetOffsetY = { it })
             ) {
                 NavigationBar(containerColor = Color(0xFF1E1E1E)) {
-                    val navBackStackEntry by
-                        navController.currentBackStackEntryAsState()
-                    val currentDestination = navBackStackEntry?.destination
-
                     navItems.forEach { item ->
                         NavigationBarItem(
                             icon = {

@@ -95,14 +95,14 @@ object BiometricUnlockStore {
         return generator.generateKey()
     }
 
-    private fun clearEnrollment(context: Context) {
+    private fun clearEnrollment(context: Context): Boolean {
         try {
             val store = keyStore()
             if (store.containsAlias(ALIAS)) store.deleteEntry(ALIAS)
         } catch (_: Exception) {
         }
 
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .remove(ENCRYPTED_TOKEN)
             .remove(TOKEN_HASH)
@@ -110,8 +110,8 @@ object BiometricUnlockStore {
             .commit()
     }
 
-    fun disable(context: Context) {
-        clearEnrollment(context)
+    fun disable(context: Context): Boolean {
+        return clearEnrollment(context)
     }
 
     fun enroll(
@@ -124,7 +124,10 @@ object BiometricUnlockStore {
         }
 
         try {
-            clearEnrollment(activity)
+            if (!clearEnrollment(activity)) {
+                callback(false, "Could not clear previous biometric enrollment.")
+                return
+            }
             createKey()
 
             val token = ByteArray(32).also { SecureRandom().nextBytes(it) }

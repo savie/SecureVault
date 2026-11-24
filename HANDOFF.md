@@ -273,7 +273,7 @@ Catatan:
 - Startup Recovery juga berhasil diuji melalui Force Stop saat Container mounted, kemudian membuka aplikasi kembali dan menyelesaikan recovery menggunakan password Container.
 - Force Stop tidak menjamin callback lifecycle berjalan. Startup Recovery merupakan mekanisme pemulihan ketika proses sebelumnya berakhir tanpa sempat melakukan Auto-Lock.
 - Diagnostic logging yang digunakan selama pengujian telah dihapus dari source produksi. Build Free dan Pro setelah pembersihan logging berhasil.
-- Belum dilakukan commit atau tag untuk 6.7-d5. Seluruh perubahan D5 masih menunggu pemeriksaan akhir dan persetujuan user.
+- 6.7-d5 telah selesai dan diterima sebagai baseline. Implementasi Auto-Lock tidak termasuk perubahan A5.2 ini.
 
 ### 6.2 Architecture Improvement
 
@@ -410,7 +410,7 @@ Bagian ini merupakan pembaruan resmi Handoff. Jika terdapat perbedaan dengan roa
 | A2 — Vault Operation Consolidation | DONE — checkpoint `51048bb` |
 | A3 — Container Session & Security | DONE — A3.1 dan A3.2 selesai; checkpoint `8770a76` sudah di-push |
 | A4 — App Entry & Recovery | DONE — implementasi dan seluruh verifikasi selesai |
-| A5 — Settings Ownership | NOT STARTED |
+| A5 — Settings Ownership | DONE — Auto-Lock dan Biometric Ownership terverifikasi |
 | A6 — Shared UI Consolidation | NOT STARTED |
 | Release v1.6.8 | NOT STARTED |
 
@@ -590,8 +590,8 @@ ATURAN INI WAJIB DIPATUHI:
 
 - Pengerjaan dilakukan secara lokal di Code On The Go (CoGo).
 - Repository GitHub menjadi baseline dan tidak disentuh selama implementasi lokal.
-- File sampah lokal yang belum di-commit memang sengaja dipertahankan.
-- File sampah tersebut tidak boleh dihapus, dibersihkan, dipindahkan, atau diubah.
+- Backup lokal dipertahankan selama masih diperlukan untuk rollback.
+- Pembersihan backup dan file sementara dapat dilakukan atas instruksi eksplisit user setelah klasifikasi.
 - File sampah lokal tidak boleh masuk staging maupun commit.
 - Jangan menggunakan `git add .` atau `git add -A`.
 - Stage hanya file yang memang termasuk pekerjaan subtask.
@@ -622,15 +622,15 @@ AI baru wajib:
 1. Membaca seluruh HANDOFF.md.
 2. Mengonfirmasi environment CoGo, workflow patch/verifikasi, dan roadmap v1.6.8.
 3. Memahami bahwa Architecture Audit sudah selesai dan tidak perlu diulang.
-4. Mempertahankan seluruh file sampah lokal dan mengecualikannya dari commit.
+4. Memeriksa backup lokal dan hanya membersihkan file yang telah disetujui user.
 5. Memeriksa Git status tanpa membersihkan file lokal.
-6. Memverifikasi checkpoint A3.2 dan kondisi lokal A4 tanpa menghapus file backup atau file lokal lainnya.
+6. Memahami A3.2 dan A4 sebagai pekerjaan selesai. Jangan menghapus file lokal yang tidak terkait dengan pekerjaan aktif.
 7. Mempertahankan A4 sebagai DONE; seluruh implementasi dan verifikasi telah selesai.
-8. Melanjutkan ke A5 hanya setelah A4 selesai, diverifikasi, dan disetujui user.
+8. A5 telah selesai dan diverifikasi. Tahap berikutnya adalah A6 — Shared UI Consolidation, setelah scope disetujui user.
 9. Tidak langsung patch sebelum memastikan scope dan kondisi kerja.
 
 Versi Handoff: 1.6.8 — 2026-11-23
-Status: Architecture Audit DONE, A1 DONE, A2 DONE, A3 DONE (checkpoint A3.2 sudah di-push), A4 DONE — implementasi dan seluruh verifikasi selesai, A5-A6 NOT STARTED.
+Status: Architecture Audit DONE, A1 DONE, A2 DONE, A3 DONE, A4 DONE, A5 DONE — Auto-Lock dan Biometric Ownership selesai serta diverifikasi. A6 NOT STARTED.
 Target rilis: v1.6.8.
 
 ## 12.11 Checkpoint A2 dan Hasil Final Audit
@@ -734,6 +734,64 @@ Implementasi dan verifikasi A4 selesai; hasil lengkap tercatat pada bagian 12.13
 
 - Seluruh implementasi dan verifikasi A4 telah selesai dan dikonfirmasi user.
 - Belum ada checkpoint Git A4.
-- File backup sebelum patch A4 dan file lokal lainnya harus tetap dipertahankan serta tidak boleh masuk staging.
+- Backup historis A4 telah dibersihkan setelah pekerjaan A5 diverifikasi. Backup rollback A5 dipertahankan sampai checkpoint berhasil di-push.
 
-Tahap berikutnya: A5 — Settings Ownership, setelah scope dan kondisi repository diverifikasi.
+Tahap berikutnya: A6 — Shared UI Consolidation, setelah scope dan kondisi repository diverifikasi.
+
+## 12.14 Implementasi dan Verifikasi A5 — Settings Ownership
+
+### A5.1 — Auto-Lock Settings Ownership
+
+- Status: DONE.
+- Baseline: `e01b600` — `refactor: centralize auto-lock settings and diagnostics`.
+- `AutoLockSettingsStore` menjadi pemilik konfigurasi `container_auto_lock_ms`, termasuk default, validasi, pembacaan, dan penyimpanan.
+- `SettingsScreen` dan `ContainerAutoLockCoordinator` menggunakan Store yang sama.
+- `AutoLockDiagnosticsStore` menyediakan bounded diagnostic history melalui Settings.
+- Pengujian Auto-Lock Free dan Pro telah berhasil dikonfirmasi user.
+- Auto-Lock dianggap stabil. Jangan mengubah implementasinya tanpa bug yang terbukti dan persetujuan user.
+
+### A5.2 — Biometric Ownership
+
+- Status: DONE — implementasi dan runtime verification dikonfirmasi user.
+- `BiometricUnlockStore` menjadi satu-satunya pemilik persistence biometric global dan enrollment material.
+- `AppEntryViewModel` tidak lagi mengakses SharedPreferences biometric secara langsung.
+- Startup membaca status enrollment melalui `BiometricUnlockStore.isEnrolled()`.
+- `setBiometricEnabled()` hanya memperbarui UI state.
+- `BiometricUnlockStore.disable()` mengembalikan hasil commit persistence.
+- Enrollment memeriksa keberhasilan pembersihan enrollment lama sebelum membuat enrollment baru.
+- Settings hanya memperbarui state setelah operasi Store berhasil.
+- Preference keys, token/hash format, dedicated Keystore alias, AES/GCM, dan authentication flow dipertahankan.
+- Biometric Master Password dan Container berhasil diuji user.
+
+### UI Regression Fix
+
+- Status: DONE — build dan runtime verification Free serta Pro berhasil.
+- `SettingsScreen` menggunakan `verticalScroll` agar seluruh pengaturan dapat diakses.
+- Bottom Navigation otomatis tersembunyi saat scroll ke bawah dan muncul kembali saat scroll ke atas.
+- Bottom Navigation kembali terlihat ketika destination berubah.
+- Pengujian scrolling dan auto-hide/auto-show dikonfirmasi berhasil user.
+
+### Final Build dan Runtime Verification
+
+- `assembleFreeDebug` dan `assembleProDebug` berhasil pada 24 November 2026.
+- APK Free `com.securevault`, versi `1.6.7-free`, versionCode 167 berhasil diinstal.
+- APK Pro `com.securevault.pro`, versi `1.6.7-pro`, versionCode 167 berhasil diinstal.
+- Biometric Master Password dan Container: PASS.
+- Settings scroll sampai bagian bawah: PASS.
+- Bottom Navigation auto-hide dan auto-show: PASS.
+- Reset Bottom Navigation saat pergantian tab: PASS.
+- `git diff --check`: PASS.
+- Final audit sebelum update Handoff: hanya empat source file implementasi berubah.
+- Tidak ada perubahan pada `AutoLockSettingsStore`, `ContainerAutoLockCoordinator`, `ContainerRepository`, `ContainerEngine`, atau `AutoLockDiagnosticsStore`.
+- Tidak ada perubahan format `.svct`, `.svlt`, atau transaksi Auto-Lock.
+- A5 siap menjadi satu checkpoint Git bersama pembaruan Handoff.
+
+### File Checkpoint A5
+
+1. `app/src/main/java/com/securevault/MainActivity.kt`
+2. `app/src/main/java/com/securevault/ui/screens/SettingsScreen.kt`
+3. `app/src/main/java/com/securevault/ui/viewmodel/AppEntryViewModel.kt`
+4. `app/src/main/java/com/securevault/utils/BiometricUnlockStore.kt`
+5. `HANDOFF.md`
+
+Tahap berikutnya: A6 — Shared UI Consolidation. Lakukan scope discussion dan audit sesuai roadmap sebelum implementasi.
