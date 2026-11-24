@@ -32,12 +32,127 @@ object CryptoManager {
         return salt
     }
 
-    fun deriveKey(password: CharArray, salt: ByteArray): SecretKey {
-        val spec = PBEKeySpec(password, salt, ITERATIONS, KEY_LENGTH)
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val keyBytes = factory.generateSecret(spec).encoded
-        spec.clearPassword()
-        return SecretKeySpec(keyBytes, "AES")
+    fun deriveKey(password: CharArray, salt: ByteArray): SecretKey =
+        deriveAesKey(password, salt, ITERATIONS)
+
+    /**
+     * V3 uses a format-specific PBKDF2 salt to separate Vault and Container keys.
+     * The legacy deriveKey() contract remains unchanged.
+     */
+    internal fun deriveV3Key(
+        password: CharArray,
+        formatMagic: ByteArray,
+        salt: ByteArray
+    ): V3SecretKey {
+        require(formatMagic.size == 4) { "Invalid V3 format identifier" }
+        require(salt.size == SALT_LENGTH) { "Invalid V3 salt length" }
+
+        val domain = "SecureVault/V3/".toByteArray(Charsets.UTF_8)
+        val separatedSalt = ByteArray(domain.size + formatMagic.size + salt.size)
+
+        try {
+            System.arraycopy(domain, 0, separatedSalt, 0, domain.size)
+            System.arraycopy(
+                formatMagic, 0, separatedSalt, domain.size, formatMagic.size
+            )
+            System.arraycopy(
+                salt, 0, separatedSalt,
+                domain.size + formatMagic.size, salt.size
+            )
+
+            val keyBytes = deriveAesKeyMaterial(
+                password, separatedSalt, ITERATIONS
+            )
+            return try {
+                V3SecretKey(keyBytes)
+            } finally {
+                keyBytes.fill(0)
+            }
+        } finally {
+            separatedSalt.fill(0)
+        }
+    }
+
+    private fun deriveAesKey(
+        password: CharArray,
+        salt: ByteArray,
+        iterations: Int
+    ): SecretKey {
+        val keyBytes = deriveAesKeyMaterial(password, salt, iterations)
+        return try {
+            SecretKeySpec(keyBytes, "AES")
+        } finally {
+            keyBytes.fill(0)
+        }
+    }
+
+    private fun deriveAesKeyMaterial(
+        password: CharArray,
+        salt: ByteArray,
+        iterations: Int
+    ): ByteArray {
+        val spec = PBEKeySpec(password, salt, iterations, KEY_LENGTH)
+        try {
+            val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            return factory.generateSecret(spec).encoded
+        } finally {
+            spec.clearPassword()
+        }
+    }
+
+    /**
+     * Legacy Gen1 single-block AES-GCM reader.
+     * Input starts with the 12-byte IV, followed by ciphertext and tag.
+     * Caller MUST write to a temporary destination and publish it only
+     * after this method returns true.
+     */
+    fun decryptLegacyStream(
+        key: SecretKey,
+        inputStream: InputStream,
+        outputStream: OutputStream
+    ): Boolean {
+        val iv = ByteArray(IV_LENGTH)
+        val buffer = ByteArray(64 * 1024)
+
+        return try {
+            if (!readFully(inputStream, iv, 0, iv.size)) return false
+
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                key,
+                GCMParameterSpec(GCM_TAG_LENGTH, iv)
+            )
+
+            while (true) {
+                val count = inputStream.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+
+                val plaintext = cipher.update(buffer, 0, count)
+                if (plaintext != null) {
+                    try {
+                        outputStream.write(plaintext)
+                    } finally {
+                        plaintext.fill(0)
+                    }
+                }
+            }
+
+            val finalPlaintext = cipher.doFinal()
+            try {
+                outputStream.write(finalPlaintext)
+                outputStream.flush()
+            } finally {
+                finalPlaintext.fill(0)
+            }
+            true
+        } catch (_: Exception) {
+            false
+        } finally {
+            iv.fill(0)
+            buffer.fill(0)
+        }
     }
 
     fun encryptStream(key: SecretKey, inputStream: InputStream, outputStream: OutputStream) {
@@ -210,5 +325,30 @@ object CryptoManager {
         } catch (e: Exception) {
             false
         }
+    }
+}
+
+/**
+ * Clearable in-memory key material for V3 operations.
+ * Crypto providers may create their own internal copies when initialized.
+ */
+internal class V3SecretKey(keyBytes: ByteArray) : SecretKey {
+    @Volatile
+    private var keyMaterial: ByteArray? = keyBytes.copyOf()
+
+    override fun getAlgorithm(): String = "AES"
+
+    override fun getFormat(): String = "RAW"
+
+    @Synchronized
+    override fun getEncoded(): ByteArray {
+        return keyMaterial?.copyOf()
+            ?: throw IllegalStateException("V3 key has been cleared")
+    }
+
+    @Synchronized
+    fun clear() {
+        keyMaterial?.fill(0)
+        keyMaterial = null
     }
 }
