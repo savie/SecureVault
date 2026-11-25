@@ -2,6 +2,7 @@ package com.securevault.utils
 
 import android.system.Os
 import com.securevault.crypto.CryptoManager
+import com.securevault.crypto.CryptoStreamV3
 import com.securevault.fs.FileAccessManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,7 +16,8 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 object ContainerEngine {
-    private val MAGIC = "SVC2".toByteArray(Charsets.UTF_8)
+    private val MAGIC_V1 = "SVC1".toByteArray(Charsets.US_ASCII)
+    private val MAGIC_V2 = "SVC2".toByteArray(Charsets.US_ASCII)
     private const val SALT_LENGTH = 16
     private const val HEADER_SIZE = 4 + SALT_LENGTH
 
@@ -64,43 +66,39 @@ object ContainerEngine {
                 return@withContext false
             }
 
-            val salt = CryptoManager.generateSalt()
-            val key = CryptoManager.deriveKey(password.toCharArray(), salt)
+            val passwordChars = password.toCharArray()
 
-            FileOutputStream(encryptedTemp).use { output ->
-                output.write(MAGIC)
-                output.write(salt)
-
-                FileInputStream(tempZip).use { input ->
-                    CryptoManager.encryptStream(key, input, output)
+            try {
+                FileOutputStream(encryptedTemp).use { output ->
+                    FileInputStream(tempZip).use { input ->
+                        CryptoStreamV3.encrypt(
+                            CryptoStreamV3.Format.CONTAINER,
+                            passwordChars,
+                            input,
+                            output
+                        )
+                    }
+                    output.fd.sync()
                 }
-
-                output.fd.sync()
+            } finally {
+                passwordChars.fill('\u0000')
             }
 
-            // Verify the complete encrypted temporary file before replacement.
-            val verified = FileInputStream(encryptedTemp).use { input ->
-                val header = ByteArray(HEADER_SIZE)
-
-                if (!readFully(input, header)) {
-                    false
-                } else {
-                    val magic = header.copyOfRange(0, MAGIC.size)
-                    val storedSalt = header.copyOfRange(MAGIC.size, HEADER_SIZE)
-
-                    if (!magic.contentEquals(MAGIC)) {
-                        false
-                    } else {
-                        val verifyKey = CryptoManager.deriveKey(
-                            password.toCharArray(),
-                            storedSalt
+            // Verify the entire authenticated V3 stream before replacement.
+            val verifyPassword = password.toCharArray()
+            val verified = try {
+                FileInputStream(encryptedTemp).use { input ->
+                    FileOutputStream(verifyZip).use { output ->
+                        CryptoStreamV3.decrypt(
+                            CryptoStreamV3.Format.CONTAINER,
+                            verifyPassword,
+                            input,
+                            output
                         )
-
-                        FileOutputStream(verifyZip).use { output ->
-                            CryptoManager.decryptStream(verifyKey, input, output)
-                        }
                     }
                 }
+            } finally {
+                verifyPassword.fill('\u0000')
             }
 
             if (!verified || !verifyZip.isFile) {
@@ -157,21 +155,14 @@ object ContainerEngine {
         try {
             if (!sourceContainer.isFile) return@withContext false
 
-            val header = ByteArray(HEADER_SIZE)
-
+            val prefix = ByteArray(4)
             FileInputStream(sourceContainer).use { input ->
-                if (!readFully(input, header)) {
+                if (!readFully(input, prefix)) {
                     return@withContext false
                 }
             }
 
-            val magic = header.copyOfRange(0, MAGIC.size)
-            if (!magic.contentEquals(MAGIC)) {
-                return@withContext false
-            }
-
-            val salt = header.copyOfRange(MAGIC.size, HEADER_SIZE)
-            val key = CryptoManager.deriveKey(password.toCharArray(), salt)
+            val magic = String(prefix, Charsets.US_ASCII)
 
             val parent = destFolder.parentFile ?: destFolder
             if (!parent.exists() && !parent.mkdirs()) {
@@ -180,18 +171,78 @@ object ContainerEngine {
 
             tempZip = File.createTempFile("svct-unpack-", ".zip", parent)
 
-            val decryptSuccess = FileInputStream(sourceContainer).use { input ->
-                var skipped = 0L
-
-                while (skipped < HEADER_SIZE) {
-                    val count = input.skip(HEADER_SIZE - skipped)
-                    if (count <= 0L) return@use false
-                    skipped += count
+            val decryptSuccess = when (magic) {
+                "SVC3" -> {
+                    val passwordChars = password.toCharArray()
+                    try {
+                        FileInputStream(sourceContainer).use { input ->
+                            FileOutputStream(tempZip).use { output ->
+                                CryptoStreamV3.decrypt(
+                                    CryptoStreamV3.Format.CONTAINER,
+                                    passwordChars,
+                                    input,
+                                    output
+                                )
+                            }
+                        }
+                    } finally {
+                        passwordChars.fill('\u0000')
+                    }
                 }
 
-                FileOutputStream(tempZip).use { output ->
-                    CryptoManager.decryptStream(key, input, output)
+                "SVC2", "SVC1" -> {
+                    val header = ByteArray(HEADER_SIZE)
+
+                    FileInputStream(sourceContainer).use { input ->
+                        if (!readFully(input, header)) {
+                            return@withContext false
+                        }
+                    }
+
+                    val expectedMagic =
+                        if (magic == "SVC2") MAGIC_V2 else MAGIC_V1
+
+                    if (!header.copyOfRange(0, 4).contentEquals(expectedMagic)) {
+                        return@withContext false
+                    }
+
+                    val salt = header.copyOfRange(4, HEADER_SIZE)
+                    val passwordChars = password.toCharArray()
+
+                    try {
+                        val key = CryptoManager.deriveKey(passwordChars, salt)
+
+                        FileInputStream(sourceContainer).use { input ->
+                            var remaining = HEADER_SIZE.toLong()
+
+                            while (remaining > 0L) {
+                                val skipped = input.skip(remaining)
+                                if (skipped > 0L) {
+                                    remaining -= skipped
+                                } else {
+                                    if (input.read() < 0) {
+                                        return@use false
+                                    }
+                                    remaining--
+                                }
+                            }
+
+                            FileOutputStream(tempZip).use { output ->
+                                if (magic == "SVC2") {
+                                    CryptoManager.decryptStream(key, input, output)
+                                } else {
+                                    CryptoManager.decryptLegacyStream(key, input, output)
+                                }
+                            }
+                        }
+                    } finally {
+                        passwordChars.fill('\u0000')
+                        salt.fill(0)
+                        header.fill(0)
+                    }
                 }
+
+                else -> false
             }
 
             if (!decryptSuccess) {

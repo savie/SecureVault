@@ -3,6 +3,7 @@ package com.securevault.data.repository
 import android.content.Context
 import android.net.Uri
 import com.securevault.crypto.CryptoManager
+import com.securevault.crypto.CryptoStreamV3
 import com.securevault.data.local.VaultDbHelper
 import com.securevault.data.local.VaultItem
 import com.securevault.fs.FileAccessManager
@@ -119,6 +120,7 @@ class VaultRepository(private val context: Context) {
         val vaultDir = File(context.filesDir, "vault")
         val tempFile = File(vaultDir, "$uuid.svlt.tmp")
         val destFile = File(vaultDir, "$uuid.svlt")
+        val verifyFile = File(vaultDir, "$uuid.verify.tmp")
         var metadataSaved = false
         var totalSize = 0L
 
@@ -127,16 +129,23 @@ class VaultRepository(private val context: Context) {
                 throw IllegalStateException("Cannot create Vault directory")
             }
 
-            val salt = CryptoManager.generateSalt()
-            val key = CryptoManager.deriveKey(masterPassword.toCharArray(), salt)
-
             input.use { source ->
-                val countingInput = CountingInputStream(source) { totalSize = it }
+                val countingInput = CountingInputStream(source) {
+                    totalSize = it
+                }
+                val passwordChars = masterPassword.toCharArray()
 
-                FileOutputStream(tempFile).use { output ->
-                    output.write("SVLT".toByteArray(Charsets.UTF_8))
-                    output.write(salt)
-                    CryptoManager.encryptStream(key, countingInput, output)
+                try {
+                    FileOutputStream(tempFile).use { output ->
+                        CryptoStreamV3.encrypt(
+                            CryptoStreamV3.Format.VAULT,
+                            passwordChars,
+                            countingInput,
+                            output
+                        )
+                    }
+                } finally {
+                    passwordChars.fill('\u0000')
                 }
             }
 
@@ -144,17 +153,29 @@ class VaultRepository(private val context: Context) {
                 throw IllegalStateException("File is empty")
             }
 
-            val verified = FileInputStream(tempFile).use { encrypted ->
-                val header = ByteArray(20)
-                readFully(encrypted, header) &&
-                    String(header.copyOfRange(0, 4), Charsets.UTF_8) == "SVLT" &&
-                    header.copyOfRange(4, 20).contentEquals(salt) &&
-                    CryptoManager.verifyEncryptedStream(key, encrypted, totalSize)
+            val verifyPassword = masterPassword.toCharArray()
+            val verified = try {
+                FileInputStream(tempFile).use { encrypted ->
+                    FileOutputStream(verifyFile).use { output ->
+                        CryptoStreamV3.decrypt(
+                            CryptoStreamV3.Format.VAULT,
+                            verifyPassword,
+                            encrypted,
+                            output
+                        )
+                    }
+                }
+            } finally {
+                verifyPassword.fill('\u0000')
             }
 
-            if (!verified) {
+            if (!verified || !verifyFile.isFile ||
+                verifyFile.length() != totalSize
+            ) {
                 throw IllegalStateException("Encrypted file verification failed")
             }
+
+            verifyFile.delete()
 
             if (!tempFile.renameTo(destFile)) {
                 throw IllegalStateException("Cannot finalize encrypted file")
@@ -173,9 +194,11 @@ class VaultRepository(private val context: Context) {
             return deleteOriginal()
         } catch (error: Exception) {
             tempFile.delete()
+            verifyFile.delete()
             if (!metadataSaved) destFile.delete()
             throw error
         } finally {
+            verifyFile.delete()
             try {
                 input.close()
             } catch (_: Exception) {
@@ -355,31 +378,102 @@ class VaultRepository(private val context: Context) {
         expectedSize: Long,
         tempFile: File
     ) {
-        val header = ByteArray(20)
+        val prefix = ByteArray(4)
+
         FileInputStream(sourceFile).use { input ->
-            if (!readFully(input, header)) {
+            if (!readFully(input, prefix)) {
                 throw IllegalStateException("Corrupt vault file")
             }
         }
 
-        if (String(header.copyOfRange(0, 4), Charsets.UTF_8) != "SVLT") {
-            throw IllegalStateException("Invalid vault file (unsupported format)")
-        }
+        val magic = String(prefix, Charsets.US_ASCII)
 
-        val salt = header.copyOfRange(4, 20)
-        val key = CryptoManager.deriveKey(masterPassword.toCharArray(), salt)
+        val success = when (magic) {
+            "SVL3" -> {
+                val passwordChars = masterPassword.toCharArray()
+                try {
+                    FileInputStream(sourceFile).use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            CryptoStreamV3.decrypt(
+                                CryptoStreamV3.Format.VAULT,
+                                passwordChars,
+                                input,
+                                output
+                            )
+                        }
+                    }
+                } finally {
+                    passwordChars.fill('\u0000')
+                }
+            }
 
-        val success = FileInputStream(sourceFile).use { input ->
-            skipFully(input, 20L)
-            FileOutputStream(tempFile).use { output ->
-                CryptoManager.decryptStream(key, input, output)
+            "SVLT" -> {
+                val header = ByteArray(20)
+
+                FileInputStream(sourceFile).use { input ->
+                    if (!readFully(input, header)) {
+                        throw IllegalStateException("Corrupt legacy Vault file")
+                    }
+                }
+
+                val salt = header.copyOfRange(4, 20)
+                val passwordChars = masterPassword.toCharArray()
+
+                try {
+                    val key = CryptoManager.deriveKey(passwordChars, salt)
+
+                    FileInputStream(sourceFile).use { input ->
+                        skipFully(input, 20L)
+                        FileOutputStream(tempFile).use { output ->
+                            CryptoManager.decryptStream(key, input, output)
+                        }
+                    }
+                } finally {
+                    passwordChars.fill('\u0000')
+                    salt.fill(0)
+                    header.fill(0)
+                }
+            }
+
+            else -> {
+                // Gen1: salt[16] + IV[12] + ciphertext + GCM tag.
+                if (sourceFile.length() < 44L) {
+                    throw IllegalStateException("Invalid or unsupported Vault format")
+                }
+
+                val salt = ByteArray(16)
+
+                FileInputStream(sourceFile).use { input ->
+                    if (!readFully(input, salt)) {
+                        throw IllegalStateException("Corrupt legacy Vault file")
+                    }
+                }
+
+                val passwordChars = masterPassword.toCharArray()
+
+                try {
+                    val key = CryptoManager.deriveKey(passwordChars, salt)
+
+                    FileInputStream(sourceFile).use { input ->
+                        skipFully(input, 16L)
+                        FileOutputStream(tempFile).use { output ->
+                            CryptoManager.decryptLegacyStream(key, input, output)
+                        }
+                    }
+                } finally {
+                    passwordChars.fill('\u0000')
+                    salt.fill(0)
+                }
             }
         }
 
-        if (!success || tempFile.length() <= 0L ||
+        if (!success || !tempFile.isFile || tempFile.length() <= 0L ||
             (expectedSize >= 0L && tempFile.length() != expectedSize)
         ) {
-            throw IllegalStateException("Failed to decrypt (wrong password or corrupt file)")
+            tempFile.delete()
+            throw IllegalStateException(
+                "Failed to decrypt (wrong password or corrupt file)"
+            )
         }
     }
 
