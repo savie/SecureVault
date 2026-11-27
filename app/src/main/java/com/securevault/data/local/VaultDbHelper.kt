@@ -5,7 +5,8 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.db", null, 4) {
+class VaultDbHelper(context: Context) :
+    SQLiteOpenHelper(context, "SecureVault.db", null, 4) {
 
     override fun onCreate(db: SQLiteDatabase) {
         val createTable = """
@@ -19,12 +20,19 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
                 originalTimestamp INTEGER
             )
         """.trimIndent()
+
         db.execSQL(createTable)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+    override fun onUpgrade(
+        db: SQLiteDatabase,
+        oldVersion: Int,
+        newVersion: Int
+    ) {
         if (oldVersion < 4) {
-            db.execSQL("ALTER TABLE vault_files ADD COLUMN originalTimestamp INTEGER DEFAULT 0")
+            db.execSQL(
+                "ALTER TABLE vault_files ADD COLUMN originalTimestamp INTEGER DEFAULT 0"
+            )
         }
     }
 
@@ -50,9 +58,30 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
             }
 
             val insertedRow = db.insert("vault_files", null, values)
+
             if (insertedRow == -1L) {
                 throw IllegalStateException("Failed to save Vault metadata")
             }
+        } finally {
+            db.close()
+        }
+    }
+
+    fun restoreFile(item: VaultItem): Boolean {
+        val db = writableDatabase
+
+        try {
+            val values = ContentValues().apply {
+                put("uuid", item.uuid)
+                put("originalName", item.originalName)
+                put("mimeType", item.mimeType)
+                put("fileSize", item.fileSize)
+                put("timestamp", item.timestamp)
+                put("originalPath", item.originalPath)
+                put("originalTimestamp", item.originalTimestamp)
+            }
+
+            return db.insert("vault_files", null, values) != -1L
         } finally {
             db.close()
         }
@@ -63,7 +92,10 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
         val db = readableDatabase
 
         try {
-            db.rawQuery("SELECT * FROM vault_files ORDER BY timestamp DESC", null).use { cursor ->
+            db.rawQuery(
+                "SELECT * FROM vault_files ORDER BY timestamp DESC",
+                null
+            ).use { cursor ->
                 if (cursor.moveToFirst()) {
                     do {
                         list.add(
@@ -91,7 +123,10 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
         val db = readableDatabase
 
         try {
-            db.rawQuery("SELECT * FROM vault_files WHERE uuid = ?", arrayOf(uuid)).use { cursor ->
+            db.rawQuery(
+                "SELECT * FROM vault_files WHERE uuid = ?",
+                arrayOf(uuid)
+            ).use { cursor ->
                 if (!cursor.moveToFirst()) return null
 
                 return VaultItem(
@@ -111,8 +146,13 @@ class VaultDbHelper(context: Context) : SQLiteOpenHelper(context, "SecureVault.d
 
     fun deleteFile(uuid: String): Boolean {
         val db = writableDatabase
+
         try {
-            return db.delete("vault_files", "uuid = ?", arrayOf(uuid)) > 0
+            return db.delete(
+                "vault_files",
+                "uuid = ?",
+                arrayOf(uuid)
+            ) > 0
         } finally {
             db.close()
         }

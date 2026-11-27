@@ -49,26 +49,89 @@ class ContainerRepository(private val context: Context) {
                 counter++
             }
 
+            val removeUnregisteredArchive = {
+                runCatching {
+                    !file.exists() || (file.delete() && !file.exists())
+                }.getOrDefault(false)
+            }
+
             val emptyFolder = File(context.cacheDir, "empty_temp_$id")
             if (!emptyFolder.mkdirs()) return@withContext false
 
             val success = try {
                 ContainerEngine.packFolder(emptyFolder, file, password)
+            } catch (e: Exception) {
+                android.util.Log.e(
+                    "ContainerRepository",
+                    "Container archive creation threw an exception: $id",
+                    e
+                )
+                false
             } finally {
                 emptyFolder.deleteRecursively()
             }
 
-            if (!success) return@withContext false
+            if (!success) {
+                if (!removeUnregisteredArchive()) {
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Failed to remove incomplete archive: $id"
+                    )
+                }
+                return@withContext false
+            }
 
-            val passwordHash = CryptoManager.hashPassword(password)
-            val encryptedPassword =
-                if (enableBiometric) KeystoreHelper.encrypt(password) else null
+            val credentials = try {
+                CryptoManager.hashPassword(password) to
+                    if (enableBiometric) KeystoreHelper.encrypt(password) else null
+            } catch (e: Exception) {
+                android.util.Log.e(
+                    "ContainerRepository",
+                    "Container credential preparation failed: $id",
+                    e
+                )
+                if (!removeUnregisteredArchive()) {
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Failed to remove archive after credential preparation failure: $id"
+                    )
+                }
+                return@withContext false
+            }
 
-            dbHelper.insertContainer(
-                id, name, file.absolutePath, passwordHash,
-                useMasterPassword, enableBiometric, encryptedPassword
-            )
-            dbHelper.updateSize(id, file.length())
+            val passwordHash = credentials.first
+            val encryptedPassword = credentials.second
+
+            val inserted = try {
+                dbHelper.insertContainer(
+                    id,
+                    name,
+                    file.absolutePath,
+                    passwordHash,
+                    useMasterPassword,
+                    enableBiometric,
+                    encryptedPassword,
+                    file.length()
+                )
+            } catch (e: Exception) {
+                android.util.Log.e(
+                    "ContainerRepository",
+                    "Container metadata insert threw an exception: $id",
+                    e
+                )
+                false
+            }
+
+            if (!inserted) {
+                if (!removeUnregisteredArchive()) {
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Failed to remove archive after metadata insert failure: $id"
+                    )
+                }
+                return@withContext false
+            }
+
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -267,13 +330,39 @@ class ContainerRepository(private val context: Context) {
                     }
 
                     val file = File(current.filePath)
-                    if (file.exists()) {
-                        if (!file.delete() || file.exists()) {
-                            return@withLock false
-                        }
+                    val encryptedPassword =
+                        dbHelper.getEncryptedPassword(current.id)
+
+                    if (!dbHelper.deleteContainer(current.id)) {
+                        return@withLock false
                     }
 
-                    dbHelper.deleteContainer(item.id)
+                    val archiveDeleted = try {
+                        !file.exists() || (file.delete() && !file.exists())
+                    } catch (_: Exception) {
+                        false
+                    }
+
+                    if (!archiveDeleted) {
+                        val restored = try {
+                            dbHelper.restoreContainer(
+                                current,
+                                encryptedPassword
+                            )
+                        } catch (_: Exception) {
+                            false
+                        }
+
+                        if (!restored) {
+                            android.util.Log.e(
+                                "ContainerRepository",
+                                "Container metadata rollback failed: ${current.id}"
+                            )
+                        }
+
+                        return@withLock false
+                    }
+
                     ContainerSessionManager.removeSession(item.id)
                     true
                 } catch (e: Exception) {
@@ -312,11 +401,58 @@ class ContainerRepository(private val context: Context) {
 
                 if (!oldFile.renameTo(newFile)) return@withLock false
 
-                dbHelper.updateContainer(
-                    item.id,
-                    newName,
-                    newFile.absolutePath
-                )
+                val databaseUpdated = try {
+                    dbHelper.updateContainer(
+                        item.id,
+                        newName,
+                        newFile.absolutePath
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Container rename metadata update threw an exception: ${item.id}",
+                        e
+                    )
+                    false
+                }
+
+                if (!databaseUpdated) {
+                    val fileRolledBack = try {
+                        newFile.renameTo(oldFile)
+                    } catch (_: Exception) {
+                        false
+                    }
+
+                    if (fileRolledBack) {
+                        return@withLock false
+                    }
+
+                    val dbAligned = newFile.isFile &&
+                        try {
+                            dbHelper.updateContainer(
+                                item.id,
+                                newName,
+                                newFile.absolutePath
+                            )
+                        } catch (e: Exception) {
+                            android.util.Log.e(
+                                "ContainerRepository",
+                                "Container rename DB alignment failed: ${item.id}",
+                                e
+                            )
+                            false
+                        }
+
+                    if (!dbAligned) {
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Container rename rollback failed: ${item.id}"
+                        )
+                    }
+
+                    return@withLock dbAligned
+                }
+
                 true
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -434,7 +570,7 @@ class ContainerRepository(private val context: Context) {
 
                 // The encrypted archive is complete and verified.
                 // Persist the locked state before deleting plaintext.
-                if (!dbHelper.updateMountStatus(item.id, false)) {
+                if (!dbHelper.updateMountStatus(item.id, false, containerFile.length())) {
                     android.util.Log.e(
                         "ContainerRepository",
                         "Database lock transition failed; plaintext retained: ${item.id}"
@@ -442,7 +578,7 @@ class ContainerRepository(private val context: Context) {
                     return@withLock false
                 }
 
-                dbHelper.updateSize(item.id, containerFile.length())
+
                 ContainerSessionManager.removeSession(item.id)
 
                 // If cleanup is interrupted, startup recovery will verify
@@ -551,7 +687,7 @@ class ContainerRepository(private val context: Context) {
                 }
 
                 // Do not remove plaintext until the locked state is durable.
-                if (!dbHelper.updateMountStatus(current.id, false)) {
+                if (!dbHelper.updateMountStatus(current.id, false, containerFile.length())) {
                     android.util.Log.e(
                         "ContainerRepository",
                         "Recovery database transition failed; plaintext retained: ${current.id}"
@@ -559,7 +695,7 @@ class ContainerRepository(private val context: Context) {
                     return@withLock false
                 }
 
-                dbHelper.updateSize(current.id, containerFile.length())
+
                 ContainerSessionManager.removeSession(current.id)
 
                 if (tempDir.exists()) {
@@ -680,7 +816,7 @@ class ContainerRepository(private val context: Context) {
                     )
 
                     // Persist Locked before deleting the plaintext directory.
-                    if (!dbHelper.updateMountStatus(container.id, false)) {
+                    if (!dbHelper.updateMountStatus(container.id, false, containerFile.length())) {
                         android.util.Log.e(
                             "ContainerRepository",
                             "Auto-lock database transition failed; plaintext retained: ${container.id}"
@@ -693,7 +829,7 @@ class ContainerRepository(private val context: Context) {
                         return@withLock false
                     }
 
-                    dbHelper.updateSize(container.id, containerFile.length())
+
                     ContainerSessionManager.removeSession(container.id)
 
                     if (tempDir.exists()) {

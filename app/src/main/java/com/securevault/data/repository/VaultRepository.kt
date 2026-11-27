@@ -239,6 +239,7 @@ class VaultRepository(private val context: Context) {
         item: VaultItem
     ): String = withContext(Dispatchers.IO) {
         val vaultFile = File(File(context.filesDir, "vault"), "${item.uuid}.svlt")
+        var sourceDeleteFailed = false
         var metadataDeleteFailed = false
 
         val location = restoreEncryptedFile(
@@ -246,14 +247,33 @@ class VaultRepository(private val context: Context) {
             masterPassword,
             item,
             null,
+            onSourceDeleteFailed = { sourceDeleteFailed = true },
             onMetadataDeleteFailed = { metadataDeleteFailed = true }
-        ) ?: throw IllegalStateException("Failed to restore to the original location. Vault source was kept.")
+        )
 
-        if (metadataDeleteFailed) {
-            throw IllegalStateException("File restored, but Vault metadata could not be deleted.")
+        when {
+            sourceDeleteFailed && metadataDeleteFailed ->
+                throw IllegalStateException(
+                    "File restored, but encrypted source deletion and metadata rollback failed."
+                )
+
+            sourceDeleteFailed ->
+                throw IllegalStateException(
+                    "File restored, but encrypted source could not be deleted. Both copies were kept."
+                )
+
+            metadataDeleteFailed ->
+                throw IllegalStateException(
+                    "File restored, but Vault metadata could not be deleted. Encrypted source was kept."
+                )
+
+            location == null ->
+                throw IllegalStateException(
+                    "Failed to restore to the original location. Vault source was kept."
+                )
+
+            else -> location
         }
-
-        location
     }
 
     suspend fun decryptFile(
@@ -342,26 +362,57 @@ class VaultRepository(private val context: Context) {
             }
 
 
-            if (!deleteFileSource(sourceFile)) {
-                onSourceDeleteFailed?.invoke()
-                return null
+            val managedVaultFile = item?.let {
+                File(File(context.filesDir, "vault"), "${it.uuid}.svlt")
             }
 
+            val sameManagedFile = item != null &&
+                managedVaultFile != null &&
+                try {
+                    sourceFile.canonicalFile == managedVaultFile.canonicalFile
+                } catch (_: Exception) {
+                    false
+                }
 
-            if (item != null) {
-                val vaultDirectory = File(context.filesDir, "vault")
-                val managedVaultFile = File(vaultDirectory, "${item.uuid}.svlt")
-                if (!managedVaultFile.exists()) {
-                    val metadataDeleted = try {
-                        dbHelper.deleteFile(item.uuid)
+            val shouldDeleteMetadata = item != null &&
+                (sameManagedFile || managedVaultFile?.exists() == false)
+
+            val metadataItem = if (shouldDeleteMetadata) item else null
+
+            if (metadataItem != null) {
+                val metadataDeleted = try {
+                    dbHelper.deleteFile(metadataItem.uuid)
+                } catch (_: Exception) {
+                    false
+                }
+
+                if (!metadataDeleted) {
+                    onMetadataDeleteFailed?.invoke()
+                    return null
+                }
+            }
+
+            val sourceDeleted = try {
+                deleteFileSource(sourceFile)
+            } catch (_: Exception) {
+                false
+            }
+
+            if (!sourceDeleted) {
+                if (metadataItem != null) {
+                    val metadataRestored = try {
+                        dbHelper.restoreFile(metadataItem)
                     } catch (_: Exception) {
                         false
                     }
 
-                    if (!metadataDeleted) {
+                    if (!metadataRestored) {
                         onMetadataDeleteFailed?.invoke()
                     }
                 }
+
+                onSourceDeleteFailed?.invoke()
+                return null
             }
 
             return savedLocation
@@ -483,12 +534,32 @@ class VaultRepository(private val context: Context) {
     suspend fun deleteVaultFile(item: VaultItem) = withContext(Dispatchers.IO) {
         val vaultFile = File(File(context.filesDir, "vault"), "${item.uuid}.svlt")
 
-        if (vaultFile.exists() && !deleteFileSource(vaultFile)) {
-            throw IllegalStateException("Failed to delete Vault file")
-        }
-
         if (!dbHelper.deleteFile(item.uuid)) {
             throw IllegalStateException("Vault metadata could not be deleted")
+        }
+
+        val sourceDeleted = try {
+            !vaultFile.exists() || deleteFileSource(vaultFile)
+        } catch (_: Exception) {
+            false
+        }
+
+        if (!sourceDeleted) {
+            val metadataRestored = try {
+                dbHelper.restoreFile(item)
+            } catch (_: Exception) {
+                false
+            }
+
+            if (!metadataRestored) {
+                throw IllegalStateException(
+                    "Vault file deletion failed and metadata rollback also failed."
+                )
+            }
+
+            throw IllegalStateException(
+                "Failed to delete Vault file. Metadata was restored."
+            )
         }
     }
 
