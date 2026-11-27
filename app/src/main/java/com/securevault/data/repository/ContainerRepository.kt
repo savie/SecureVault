@@ -354,7 +354,6 @@ class ContainerRepository(private val context: Context) {
                     if (tempDir.exists()) return@withLock null
                 }
 
-                if (!tempDir.mkdirs()) return@withLock null
 
                 val containerFile = File(current.filePath)
 
@@ -535,7 +534,6 @@ class ContainerRepository(private val context: Context) {
                         if (verifyDir.exists()) return@withLock false
                     }
 
-                    if (!verifyDir.mkdirs()) return@withLock false
 
                     val verified = try {
                         ContainerEngine.unpackContainer(

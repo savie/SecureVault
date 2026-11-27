@@ -12,7 +12,6 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 object ContainerEngine {
@@ -151,9 +150,23 @@ object ContainerEngine {
         password: String
     ): Boolean = withContext(Dispatchers.IO) {
         var tempZip: File? = null
+        var stagingDir: File? = null
 
         try {
-            if (!sourceContainer.isFile) return@withContext false
+            if (!sourceContainer.isFile || destFolder.exists()) {
+                return@withContext false
+            }
+
+            val parent = destFolder.parentFile
+                ?: return@withContext false
+
+            if (!parent.exists() && !parent.mkdirs()) {
+                return@withContext false
+            }
+
+            if (!parent.isDirectory || destFolder.exists()) {
+                return@withContext false
+            }
 
             val prefix = ByteArray(4)
             FileInputStream(sourceContainer).use { input ->
@@ -164,12 +177,11 @@ object ContainerEngine {
 
             val magic = String(prefix, Charsets.US_ASCII)
 
-            val parent = destFolder.parentFile ?: destFolder
-            if (!parent.exists() && !parent.mkdirs()) {
-                return@withContext false
-            }
-
-            tempZip = File.createTempFile("svct-unpack-", ".zip", parent)
+            tempZip = File.createTempFile(
+                "svct-unpack-",
+                ".zip",
+                parent
+            )
 
             val decryptSuccess = when (magic) {
                 "SVC3" -> {
@@ -249,18 +261,39 @@ object ContainerEngine {
                 return@withContext false
             }
 
-            if (!destFolder.exists() && !destFolder.mkdirs()) {
+            // Staging dibuat sebagai sibling agar publikasi akhir dapat
+            // menggunakan rename pada filesystem yang sama.
+            val staging = File(
+                parent,
+                ".${destFolder.name}.unpack-${java.util.UUID.randomUUID()}"
+            )
+
+            if (!staging.mkdir()) {
+                return@withContext false
+            }
+            stagingDir = staging
+
+            ZipArchiveIntegrity.extract(tempZip, staging)
+
+            // Jangan pernah menimpa direktori tujuan yang muncul selama
+            // proses ekstraksi.
+            if (destFolder.exists()) {
                 return@withContext false
             }
 
-            unzipFolder(tempZip, destFolder)
+            android.system.Os.rename(
+                staging.absolutePath,
+                destFolder.absolutePath
+            )
+
+            stagingDir = null
             true
         } catch (e: Exception) {
             e.printStackTrace()
-            destFolder.deleteRecursively()
             false
         } finally {
             tempZip?.delete()
+            stagingDir?.deleteRecursively()
         }
     }
 
@@ -336,36 +369,5 @@ object ContainerEngine {
         }
     }
 
-    private fun unzipFolder(zipFile: File, destFolder: File) {
-        ZipInputStream(FileInputStream(zipFile)).use { zis ->
-            var entry = zis.nextEntry
 
-            while (entry != null) {
-                val outFile = File(destFolder, entry.name)
-
-                if (!outFile.canonicalPath.startsWith(
-                        destFolder.canonicalPath + File.separator
-                    )
-                ) {
-                    throw SecurityException(
-                        "Zip entry outside target dir: ${entry.name}"
-                    )
-                }
-
-                if (entry.isDirectory) {
-                    outFile.mkdirs()
-                } else {
-                    outFile.parentFile?.mkdirs()
-
-                    FileOutputStream(outFile).use { output ->
-                        zis.copyTo(output, 64 * 1024)
-                    }
-                }
-
-                outFile.setLastModified(entry.time)
-                zis.closeEntry()
-                entry = zis.nextEntry
-            }
-        }
-    }
 }
