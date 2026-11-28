@@ -10,6 +10,8 @@ package com.securevault.fs
 interface RootOperations {
     fun isAvailable(): Boolean
     fun copyAsRoot(sourcePath: String, destPath: String): Boolean
+    /** Verifikasi isi dan struktur sumber/tujuan menggunakan akses privileged. */
+    fun verifyCopyAsRoot(sourcePath: String, destPath: String): Boolean
     fun deleteAsRoot(path: String): Boolean
     fun moveAsRoot(fromPath: String, toPath: String): Boolean
     fun execAsRoot(command: String): Boolean

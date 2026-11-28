@@ -132,9 +132,20 @@ object FileOperationHelper {
             // Root fallback wajib diverifikasi sebelum staging dipromosikan.
             // Jika source tidak dapat diverifikasi oleh proses aplikasi,
             // operasi harus gagal secara aman.
-            if (rootCopy && !verifyTree(source, staging)) {
-                deletePath(staging)
-                return FileResult.Failure
+            if (rootCopy) {
+                val stagingVerified = try {
+                    FileAccessManager.rootOperations.verifyCopyAsRoot(
+                        source.absolutePath,
+                        staging.absolutePath
+                    )
+                } catch (_: Exception) {
+                    false
+                }
+
+                if (!stagingVerified) {
+                    deletePath(staging)
+                    return FileResult.Failure
+                }
             }
 
             var backedUp = false
@@ -155,7 +166,20 @@ object FileOperationHelper {
 
             // Semua jalur copy, termasuk root fallback, wajib diverifikasi
             // kembali setelah staging dipindahkan ke destination.
-            if (!verifyTree(source, destination)) {
+            val destinationVerified = if (rootCopy) {
+                try {
+                    FileAccessManager.rootOperations.verifyCopyAsRoot(
+                        source.absolutePath,
+                        destination.absolutePath
+                    )
+                } catch (_: Exception) {
+                    false
+                }
+            } else {
+                verifyTree(source, destination)
+            }
+
+            if (!destinationVerified) {
                 deletePath(destination)
                 if (backedUp) movePath(backup, destination)
                 return FileResult.Failure

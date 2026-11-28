@@ -39,6 +39,62 @@ class ProRootOperations : RootOperations {
         }
     }
 
+    override fun verifyCopyAsRoot(sourcePath: String, destPath: String): Boolean {
+        return try {
+            val script = """
+                verify_tree() (
+                    src=§1
+                    dst=§2
+
+                    [ -e "§src" ] || [ -L "§src" ] || return 1
+                    [ -e "§dst" ] || [ -L "§dst" ] || return 1
+
+                    if [ -L "§src" ]; then
+                        [ -L "§dst" ] || return 1
+                        [ "$(readlink "§src")" = "$(readlink "§dst")" ] || return 1
+                    elif [ -d "§src" ]; then
+                        [ -d "§dst" ] && [ ! -L "§dst" ] || return 1
+
+                        for source_child in "§src"/* "§src"/.[!.]* "§src"/..?*; do
+                            [ -e "§source_child" ] || [ -L "§source_child" ] || continue
+                            child_name=§{source_child##*/}
+                            verify_tree "§source_child" "§dst/§child_name" || return 1
+                        done
+
+                        for destination_child in "§dst"/* "§dst"/.[!.]* "§dst"/..?*; do
+                            [ -e "§destination_child" ] || [ -L "§destination_child" ] || continue
+                            child_name=§{destination_child##*/}
+                            [ -e "§src/§child_name" ] || [ -L "§src/§child_name" ] || return 1
+                        done
+                    elif [ -f "§src" ]; then
+                        [ -f "§dst" ] && [ ! -L "§dst" ] || return 1
+
+                        source_size=$( /system/bin/stat -c '%s' "§src" ) || return 1
+                        destination_size=$( /system/bin/stat -c '%s' "§dst" ) || return 1
+                        [ "§source_size" = "§destination_size" ] || return 1
+
+                        source_digest=$(sha256sum "§src") || return 1
+                        destination_digest=$(sha256sum "§dst") || return 1
+                        source_digest=§{source_digest%% *}
+                        destination_digest=§{destination_digest%% *}
+                        [ -n "§source_digest" ] || return 1
+                        [ "§source_digest" = "§destination_digest" ] || return 1
+                    else
+                        return 1
+                    fi
+
+                    return 0
+                )
+
+                verify_tree ${quote(sourcePath)} ${quote(destPath)}
+            """.trimIndent().replace('§', '$')
+
+            execAsRoot(script)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     override fun deleteAsRoot(path: String): Boolean {
         return execAsRoot(
             "rm -rf -- ${quote(path)} && test ! -e ${quote(path)}"
