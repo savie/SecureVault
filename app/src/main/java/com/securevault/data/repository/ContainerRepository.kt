@@ -314,59 +314,175 @@ class ContainerRepository(private val context: Context) {
                 try {
                     val current = dbHelper.getAllContainers()
                         .find { it.id == item.id }
+                        ?: return@withLock false
 
-                    if (current == null || current.isMounted) {
-                        return@withLock false
-                    }
+                    if (current.isMounted) return@withLock false
 
                     val tempDir = File(
                         context.filesDir,
-                        "containers_temp/${item.id}"
+                        "containers_temp/${current.id}"
                     )
 
                     if (tempDir.exists()) {
-                        tempDir.deleteRecursively()
-                        if (tempDir.exists()) return@withLock false
+                        val removed = tempDir.deleteRecursively()
+                        if (!removed || tempDir.exists()) {
+                            android.util.Log.e(
+                                "ContainerRepository",
+                                "Container temporary directory cleanup failed: ${current.id}"
+                            )
+                            return@withLock false
+                        }
                     }
 
-                    val file = File(current.filePath)
+                    val archive = File(current.filePath)
                     val encryptedPassword =
                         dbHelper.getEncryptedPassword(current.id)
 
-                    if (!dbHelper.deleteContainer(current.id)) {
+                    val deleteResult = try {
+                        dbHelper.deleteContainer(current.id)
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Container metadata deletion threw an exception: ${current.id}",
+                            e
+                        )
+                        false
+                    }
+
+                    // The database result can be ambiguous after an exception.
+                    // Read the persistent state before touching the archive.
+                    val recordAfterDelete = try {
+                        dbHelper.getAllContainers()
+                            .find { it.id == current.id }
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Unable to verify container metadata deletion: ${current.id}",
+                            e
+                        )
+                        return@withLock false
+                    }
+
+                    if (recordAfterDelete != null) {
+                        if (!deleteResult) {
+                            android.util.Log.w(
+                                "ContainerRepository",
+                                "Container metadata deletion was not applied: ${current.id}"
+                            )
+                        } else {
+                            android.util.Log.e(
+                                "ContainerRepository",
+                                "Container metadata still exists after reported deletion: ${current.id}"
+                            )
+                        }
                         return@withLock false
                     }
 
                     val archiveDeleted = try {
-                        !file.exists() || (file.delete() && !file.exists())
-                    } catch (_: Exception) {
-                        false
+                        if (!archive.exists()) {
+                            true
+                        } else {
+                            archive.delete()
+                            !archive.exists()
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Container archive deletion threw an exception: ${current.id}",
+                            e
+                        )
+                        !archive.exists()
                     }
 
                     if (!archiveDeleted) {
-                        val restored = try {
+                        val restoreResult = try {
                             dbHelper.restoreContainer(
                                 current,
                                 encryptedPassword
                             )
-                        } catch (_: Exception) {
+                        } catch (e: Exception) {
+                            android.util.Log.e(
+                                "ContainerRepository",
+                                "Container metadata restoration threw an exception: ${current.id}",
+                                e
+                            )
                             false
                         }
 
-                        if (!restored) {
+                        // Verify the restored row, including the biometric secret.
+                        val restoredRecord = try {
+                            dbHelper.getAllContainers()
+                                .find { it.id == current.id }
+                        } catch (e: Exception) {
                             android.util.Log.e(
                                 "ContainerRepository",
-                                "Container metadata rollback failed: ${current.id}"
+                                "Unable to verify restored container metadata: ${current.id}",
+                                e
+                            )
+                            null
+                        }
+
+                        val restoredPassword = try {
+                            dbHelper.getEncryptedPassword(current.id)
+                        } catch (e: Exception) {
+                            android.util.Log.e(
+                                "ContainerRepository",
+                                "Unable to verify restored biometric credential: ${current.id}",
+                                e
+                            )
+                            null
+                        }
+
+                        val restorationVerified =
+                            restoredRecord == current &&
+                                restoredPassword == encryptedPassword &&
+                                archive.isFile
+
+                        if (!restorationVerified) {
+                            android.util.Log.e(
+                                "ContainerRepository",
+                                "Container deletion compensation failed; manual recovery may be required: ${current.id} (restoreResult=$restoreResult)"
+                            )
+                        } else {
+                            android.util.Log.w(
+                                "ContainerRepository",
+                                "Container deletion was compensated; archive and metadata remain consistent: ${current.id}"
                             )
                         }
 
                         return@withLock false
                     }
 
-                    ContainerSessionManager.removeSession(item.id)
+                    // Final consistency check: both persistent representations
+                    // must be absent before reporting successful deletion.
+                    val finalRecord = try {
+                        dbHelper.getAllContainers()
+                            .find { it.id == current.id }
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Final container metadata verification failed: ${current.id}",
+                            e
+                        )
+                        return@withLock false
+                    }
+
+                    if (finalRecord != null || archive.exists()) {
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Container deletion final consistency check failed: ${current.id}"
+                        )
+                        return@withLock false
+                    }
+
+                    ContainerSessionManager.removeSession(current.id)
                     true
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Container deletion failed: ${item.id}",
+                        e
+                    )
                     false
                 }
             }
@@ -379,17 +495,28 @@ class ContainerRepository(private val context: Context) {
         lockFor(item.id).withLock {
             try {
                 val current = dbHelper.getAllContainers()
-                    .find { it.id == item.id } ?: return@withLock false
+                    .find { it.id == item.id }
+                    ?: return@withLock false
 
                 if (current.isMounted) return@withLock false
+                if (newName == current.name) return@withLock true
 
                 val oldFile = File(current.filePath)
                 val dir = oldFile.parentFile ?: return@withLock false
 
+                if (!oldFile.isFile) {
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Container archive missing before rename: ${current.id}"
+                    )
+                    return@withLock false
+                }
+
                 val safeName = newName
                     .replace(Regex("[^a-zA-Z0-9_\\- ]"), "_")
                     .trim()
-                val finalSafeName = if (safeName.isEmpty()) "Container" else safeName
+                val finalSafeName =
+                    if (safeName.isEmpty()) "Container" else safeName
 
                 var newFile = File(dir, "$finalSafeName.svct")
                 var counter = 1
@@ -399,63 +526,164 @@ class ContainerRepository(private val context: Context) {
                     counter++
                 }
 
-                if (!oldFile.renameTo(newFile)) return@withLock false
+                val moved = try {
+                    oldFile.renameTo(newFile)
+                } catch (e: Exception) {
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Container archive rename threw an exception: ${current.id}",
+                        e
+                    )
+                    false
+                }
 
-                val databaseUpdated = try {
+                if (!moved || !newFile.isFile || oldFile.exists()) {
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Container archive rename could not be verified: ${current.id}"
+                    )
+                    return@withLock false
+                }
+
+                val updateResult = try {
                     dbHelper.updateContainer(
-                        item.id,
+                        current.id,
                         newName,
                         newFile.absolutePath
                     )
                 } catch (e: Exception) {
                     android.util.Log.e(
                         "ContainerRepository",
-                        "Container rename metadata update threw an exception: ${item.id}",
+                        "Container rename metadata update threw an exception: ${current.id}",
                         e
                     )
                     false
                 }
 
-                if (!databaseUpdated) {
-                    val fileRolledBack = try {
-                        newFile.renameTo(oldFile)
-                    } catch (_: Exception) {
+                fun readRecord(): ContainerItem? =
+                    dbHelper.getAllContainers()
+                        .find { it.id == current.id }
+
+                fun isOldState(record: ContainerItem?): Boolean =
+                    record != null &&
+                        record.name == current.name &&
+                        record.filePath == current.filePath
+
+                fun isNewState(record: ContainerItem?): Boolean =
+                    record != null &&
+                        record.name == newName &&
+                        record.filePath == newFile.absolutePath
+
+                // A false result or exception does not prove that SQLite
+                // left the old row unchanged. Inspect the persisted state.
+                val recordAfterUpdate = try {
+                    readRecord()
+                } catch (e: Exception) {
+                    android.util.Log.e(
+                        "ContainerRepository",
+                        "Unable to verify container rename metadata: ${current.id}",
+                        e
+                    )
+                    null
+                }
+
+                if (
+                    isNewState(recordAfterUpdate) &&
+                    newFile.isFile &&
+                    !oldFile.exists()
+                ) {
+                    return@withLock true
+                }
+
+                if (isOldState(recordAfterUpdate)) {
+                    val rollbackResult = try {
+                        if (newFile.exists() && !oldFile.exists()) {
+                            newFile.renameTo(oldFile)
+                        } else {
+                            oldFile.isFile && !newFile.exists()
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Container archive rename rollback threw an exception: ${current.id}",
+                            e
+                        )
                         false
                     }
 
-                    if (fileRolledBack) {
-                        return@withLock false
-                    }
-
-                    val dbAligned = newFile.isFile &&
-                        try {
-                            dbHelper.updateContainer(
-                                item.id,
-                                newName,
-                                newFile.absolutePath
-                            )
-                        } catch (e: Exception) {
-                            android.util.Log.e(
-                                "ContainerRepository",
-                                "Container rename DB alignment failed: ${item.id}",
-                                e
-                            )
-                            false
-                        }
-
-                    if (!dbAligned) {
+                    val rollbackVerified = try {
+                        val verifiedRecord = readRecord()
+                        rollbackResult &&
+                            oldFile.isFile &&
+                            !newFile.exists() &&
+                            isOldState(verifiedRecord)
+                    } catch (e: Exception) {
                         android.util.Log.e(
                             "ContainerRepository",
-                            "Container rename rollback failed: ${item.id}"
+                            "Container rename rollback verification failed: ${current.id}",
+                            e
                         )
+                        false
                     }
 
-                    return@withLock dbAligned
+                    if (rollbackVerified) {
+                        return@withLock false
+                    }
                 }
 
-                true
+                // If the archive remains at the new path, prefer aligning
+                // the database to that existing file rather than leaving
+                // a known mismatch.
+                if (newFile.isFile && !oldFile.exists()) {
+                    val alignmentResult = try {
+                        dbHelper.updateContainer(
+                            current.id,
+                            newName,
+                            newFile.absolutePath
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Container rename database alignment threw an exception: ${current.id}",
+                            e
+                        )
+                        false
+                    }
+
+                    val aligned = try {
+                        isNewState(readRecord()) &&
+                            newFile.isFile &&
+                            !oldFile.exists()
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ContainerRepository",
+                            "Container rename alignment verification failed: ${current.id}",
+                            e
+                        )
+                        false
+                    }
+
+                    if (aligned) {
+                        android.util.Log.w(
+                            "ContainerRepository",
+                            "Container rename recovered by aligning metadata to the new archive path: ${current.id} (updateResult=$updateResult alignmentResult=$alignmentResult)"
+                        )
+                        return@withLock true
+                    }
+                }
+
+                // Do not report success while the file and database disagree.
+                android.util.Log.e(
+                    "ContainerRepository",
+                    "Container rename left an unresolved file/database state: ${current.id} (updateResult=$updateResult)"
+                )
+                false
             } catch (e: Exception) {
-                e.printStackTrace()
+                android.util.Log.e(
+                    "ContainerRepository",
+                    "Container rename failed: ${item.id}",
+                    e
+                )
                 false
             }
         }
